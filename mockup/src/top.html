@@ -121,20 +121,100 @@
   /* ---- shared d3 text ---- */
   svg text { font-family: var(--mono); fill: var(--text); }
   .tm-label { font-family: var(--display); font-weight: 600; letter-spacing: 0.02em; pointer-events: none; }
-  .tm-pulse { fill: none; stroke: #ffffff; pointer-events: none; animation: tmPulse 2.1s ease-in-out infinite; }
+  .tm-pulse, .hot-pulse { fill: none; stroke: #ffffff; pointer-events: none; animation: tmPulse 2.1s ease-in-out infinite; }
   @keyframes tmPulse {
     0%, 100% { stroke-opacity: 0.18; stroke-width: 1.4; }
     50%      { stroke-opacity: 0.95; stroke-width: 2.6; }
   }
+  .hot-selected { fill: none; stroke: var(--accent); stroke-width: 2.5; pointer-events: none; }
   @media (prefers-reduced-motion: reduce) {
-    .tm-pulse { animation: none; stroke-opacity: 0.75; stroke-width: 1.8; }
+    .tm-pulse, .hot-pulse { animation: none; stroke-opacity: 0.8; stroke-width: 1.8; }
   }
+
+  /* click-to-inspect popover (Hotspots) — anchored beside the clicked circle */
+  .inspector {
+    position: absolute; width: 232px; z-index: 5;
+    background: rgba(15, 20, 27, 0.97); border: 1px solid var(--accent);
+    border-radius: 12px; padding: 0.7rem 0.8rem;
+    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
+    animation: insPop 0.14s ease-out;
+  }
+  @keyframes insPop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .inspector { animation: none; } }
+  .inspector .close { position: absolute; top: 5px; right: 8px; background: none; border: none; color: var(--text-faint); font-size: 1.1rem; line-height: 1; }
+  .inspector .close:hover { color: var(--text); }
+  .inspector .ins-name { font-family: var(--mono); font-weight: 650; font-size: 0.92rem; color: var(--text); padding-right: 1rem; }
+  .inspector .ins-path { font-family: var(--mono); font-size: 0.68rem; color: var(--text-dim); word-break: break-all; margin-top: 3px; }
+  .inspector .ins-copy {
+    margin-top: 0.5rem; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    background: var(--accent-deep); color: var(--accent); border: 1px solid var(--accent);
+    border-radius: 7px; padding: 0.35rem 0.5rem; font-family: var(--mono); font-size: 0.72rem;
+  }
+  .inspector .ins-copy:hover { background: var(--accent); color: var(--accent-ink); }
+  .inspector .ins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; margin-top: 0.7rem; }
+  .inspector .ins-metric { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 8px; padding: 0.4rem 0.25rem; text-align: center; }
+  .inspector .ins-metric b { display: block; font-size: 1.02rem; font-variant-numeric: tabular-nums; color: var(--text); }
+  .inspector .ins-metric span { display: block; font-size: 0.58rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px; }
+  .inspector .ins-formula { margin-top: 0.65rem; border-top: 1px solid var(--border-soft); padding-top: 0.55rem; }
+  .inspector .ins-bar { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 0.5rem; margin-bottom: 0.42rem; }
+  .inspector .ins-bar label { grid-column: 1 / -1; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 3px; }
+  .inspector .ins-bar .track { height: 6px; background: var(--bg-input); border-radius: 999px; overflow: hidden; }
+  .inspector .ins-bar .track span { display: block; height: 100%; border-radius: 999px; }
+  .inspector .ins-bar em { font-style: normal; font-family: var(--mono); font-size: 0.66rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .inspector .ins-note { font-size: 0.63rem; color: var(--text-dim); font-family: var(--mono); margin-top: 0.3rem; }
+  .inspector .ins-note b { color: var(--text); }
+  /* caret pointing back at the circle */
+  .inspector::after { content: ""; position: absolute; top: var(--cy, 50%); transform: translateY(-50%); border: 7px solid transparent; }
+  .inspector.right::after { left: -14px; border-right-color: var(--accent); }
+  .inspector.left::after { right: -14px; border-left-color: var(--accent); }
   .circle-label { font-size: 9px; text-anchor: middle; pointer-events: none; }
   .legend-label { font-size: 9px; fill: var(--text-dim); }
   .row-label { font-size: 10px; fill: var(--text-dim); }
   .col-label { font-size: 9px; fill: var(--text-dim); text-anchor: start; }
+  /* Excel-style row focus on the churn heatmap */
+  .heatmap .hm-row { transition: opacity 0.12s ease; }
+  .heatmap .hm-rowbg { fill: transparent; }
+  .heatmap.row-hover .hm-row:not(.active) { opacity: 0.2; }
+  .heatmap .hm-row.active .hm-rowbg { fill: rgba(255, 255, 255, 0.06); }
+  .heatmap .hm-row.active .row-label { fill: var(--text); font-weight: 600; }
+  /* pulse the active row's activity cells, staggered by week → a wave through time */
+  .heatmap .hm-cell.act { transform-box: fill-box; transform-origin: center; }
+  .heatmap .hm-row.active .hm-cell.act {
+    animation-name: cellPulse; animation-duration: 1.15s;
+    animation-timing-function: ease-in-out; animation-iteration-count: infinite;
+  }
+  @keyframes cellPulse { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.18); } }
+  @media (prefers-reduced-motion: reduce) { .heatmap .hm-row.active .hm-cell.act { animation: none; } }
   .node-label { font-size: 9px; fill: var(--text-dim); pointer-events: none; }
   .force svg { cursor: grab; }
+  /* hover-to-isolate on the coupling graph */
+  .force .node, .force line { transition: opacity 0.12s ease; }
+  .force.focusing .node:not(.hot) { opacity: 0.12; }
+  .force.focusing line:not(.hot) { opacity: 0.04; }
+  .force.focusing line.hot { stroke: var(--accent); stroke-opacity: 0.9; }
+  .force.focusing .node.hot .node-label { fill: var(--text); }
+  /* coupling controls (strength slider + directory legend) */
+  .cp-control { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); }
+  .cp-control input[type="range"] { accent-color: var(--accent); width: 140px; }
+  .cp-control .cp-val { color: var(--text); min-width: 2.6em; }
+  .cp-control .cp-count { color: var(--text-faint); }
+  .cp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.8rem; padding-left: 0.6rem; margin-left: 0.4rem; border-left: 1px solid var(--border); }
+  .cp-legend .item { display: inline-flex; align-items: center; gap: 0.34rem; font-family: var(--mono); font-size: 0.7rem; color: var(--text-dim); }
+  .cp-legend .item .sw { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* copy-to-editor toast */
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(8px);
+    background: rgba(15, 20, 27, 0.97); color: var(--text); border: 1px solid var(--accent);
+    border-radius: 999px; padding: 0.5rem 1rem; font-family: var(--mono); font-size: 0.76rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); z-index: 50;
+    opacity: 0; pointer-events: none; transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: opacity 0.16s ease; } }
+  /* clickable-to-copy affordances */
+  .heatmap .hm-row.active .row-label { cursor: copy; }
+  .force .node { cursor: pointer; }
 </style>
 
 <div id="app">
@@ -150,6 +230,7 @@
         <select id="dataset">
           <option value="medium">aurora-web · medium</option>
           <option value="large">monolith · large</option>
+          <option value="tangled">legacy-mono · tangled</option>
           <option value="small">cli-tool · small</option>
         </select>
       </label>

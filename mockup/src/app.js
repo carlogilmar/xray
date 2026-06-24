@@ -20,7 +20,9 @@ const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
 const DATASETS = {
   small: { seed: 7, weeks: 30, commits: 120, features: 5, label: "cli-tool" },
   medium: { seed: 42, weeks: 52, commits: 600, features: 11, label: "aurora-web" },
-  large: { seed: 99, weeks: 52, commits: 1600, features: 22, labels: "monolith" },
+  large: { seed: 99, weeks: 52, commits: 1600, features: 22, label: "monolith" },
+  // poorly modularized: big commits that reach across features → spiderweb
+  tangled: { seed: 123, weeks: 52, commits: 1500, features: 16, label: "legacy-mono", tangle: 0.6, big: true },
 };
 
 const AREAS = [
@@ -72,8 +74,9 @@ function simulate(cfg) {
     const week = Math.floor(r() * cfg.weeks);
     const feat = Math.floor(r() * cfg.features);
     const pool = byFeature[feat] || files;
-    // commit touches 1..5 files, mostly from one feature (coupling), weighted by activity
-    const n = 1 + Math.floor(r() * Math.min(5, pool.length));
+    // commit touches a few files, mostly from one feature (coupling), weighted by activity
+    const maxFiles = cfg.big ? 8 : 5;
+    const n = 1 + Math.floor(r() * Math.min(maxFiles, pool.length));
     const touched = [];
     for (let k = 0; k < n; k++) {
       // activity-weighted pick
@@ -85,10 +88,13 @@ function simulate(cfg) {
       }
       if (!touched.includes(best)) touched.push(best);
     }
-    // occasional cross-feature file (creates inter-cluster edges)
-    if (r() < 0.15) {
+    // cross-feature files create inter-cluster edges; high `tangle` = spiderweb
+    const crossProb = cfg.tangle ?? 0.15;
+    let crosses = 0;
+    while (r() < crossProb && crosses < 4) {
       const x = files[Math.floor(r() * files.length)];
       if (!touched.includes(x)) touched.push(x);
+      crosses++;
     }
     for (const f of touched) {
       f.changes++;
@@ -125,7 +131,8 @@ function simulate(cfg) {
       path: f.path,
       changes: f.changes,
       code: f.code,
-      score: ((f.changes / maxCh + f.code / maxLoc) / 2) * 100,
+      // Tornhill intersection: high only when BOTH churned and large
+      score: (f.changes / maxCh) * (f.code / maxLoc) * 100,
     }))
     .sort((a, b) => b.score - a.score);
 
@@ -174,6 +181,31 @@ const size = () => {
   const b = document.getElementById("viz-body").getBoundingClientRect();
   return [b.width, b.height];
 };
+
+// ---- copy-to-editor: copy a file path, with a brief toast ----
+function copyPath(path) {
+  const ok = () => toast(`Copied  ${path}`);
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(path).then(ok).catch(() => fallbackCopy(path, ok));
+  } else {
+    fallbackCopy(path, ok);
+  }
+}
+function fallbackCopy(text, ok) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); ok(); } catch (_) { toast("Copy failed — select the path manually"); }
+  ta.remove();
+}
+function toast(msg) {
+  let t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove("show"), 1700);
+}
 
 // how many of the largest files to draw — no point rendering 1000 slivers
 const LOC_TOP = 120;
@@ -244,7 +276,9 @@ function drawTreemap(all) {
 
   const isTop = (d) => d.data.rank <= TOP_RANK;
   const leaf = svg.selectAll("g.leaf").data(root.leaves()).join("g")
-    .attr("transform", (d) => `translate(${d.x0},${d.y0})`);
+    .attr("class", "leaf")
+    .attr("transform", (d) => `translate(${d.x0},${d.y0})`)
+    .on("click", (e, d) => copyPath(d.data.path)); // click a file to copy its path
 
   // plain colored cells with rounded corners, thin separators only
   leaf.append("rect")
@@ -313,10 +347,15 @@ function renderLocFilter(all) {
   }
 }
 
+let hotSelected = null; // selected file path, persists across resize redraws
+
 function drawCirclePacking(data) {
   const host = el(); host.innerHTML = "";
+  const body = document.getElementById("viz-body");
+  body.querySelectorAll(".inspector").forEach((e) => e.remove());
   const [w, h] = size();
   if (!data.length || w < 10 || h < 10) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const s = Math.min(w, h);
 
   const root = d3.hierarchy(buildHierarchy(data, (f) => ({ score: f.score, changes: f.changes, code: f.code, path: f.path })))
@@ -324,17 +363,98 @@ function drawCirclePacking(data) {
   d3.pack().size([s, s]).padding(3)(root);
 
   const maxScore = d3.max(data, (d) => d.score) || 1;
+  const maxChanges = d3.max(data, (d) => d.changes) || 1;
+  const maxLoc = d3.max(data, (d) => d.code) || 1;
   const color = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxScore]);
+
+  // the riskiest files (highest score), in order, get a pulsing ring
+  const risky = data.slice().sort((a, b) => b.score - a.score).slice(0, TOP_RANK).map((d) => d.path);
+  const riskyRank = new Map(risky.map((p, i) => [p, i]));
+
   const svg = d3.select(host).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
   const g = svg.append("g").attr("transform", `translate(${(w - s) / 2},${(h - s) / 2})`);
 
-  const node = g.selectAll("g.node").data(root.descendants()).join("g").attr("transform", (d) => `translate(${d.x},${d.y})`);
-  node.append("circle").attr("r", (d) => d.r)
-    .attr("fill", (d) => (d.children ? "rgba(255,255,255,0.03)" : color(d.data.score)))
-    .attr("stroke", (d) => (d.children ? "var(--border)" : "rgba(0,0,0,0.3)")).attr("stroke-width", (d) => (d.children ? 1 : 0.5))
-    .append("title").text((d) => (d.children ? d.data.name : `${d.data.path}\n${d.data.code.toLocaleString()} LOC · ${d.data.changes} changes\nhotspot score ${d.data.score.toFixed(1)}`));
-  node.filter((d) => !d.children && d.r > 16).append("text").attr("class", "circle-label").attr("dy", "0.32em")
-    .text((d) => d.data.name).attr("fill", (d) => (d.data.score > 55 ? "#1a0a00" : "#1a1a1a"));
+  const node = g.selectAll("g.node").data(root.descendants()).join("g")
+    .attr("class", "node").attr("transform", (d) => `translate(${d.x},${d.y})`);
+
+  // structure: faint parent-directory circles
+  node.filter((d) => d.children).append("circle")
+    .attr("r", (d) => d.r).attr("fill", "rgba(255,255,255,0.03)")
+    .attr("stroke", "var(--border)").attr("stroke-width", 1)
+    .append("title").text((d) => d.data.name);
+
+  // files — no text labels; grow in on load
+  const leaves = node.filter((d) => !d.children);
+  const fileCircle = leaves.append("circle")
+    .attr("fill", (d) => color(d.data.score))
+    .attr("stroke", "rgba(0,0,0,0.3)").attr("stroke-width", 0.5)
+    .attr("r", reduce ? (d) => d.r : 0)
+    .style("cursor", "pointer");
+  fileCircle.append("title")
+    .text((d) => `${d.data.path}\n${d.data.code.toLocaleString()} LOC · ${d.data.changes} changes\nhotspot score ${d.data.score.toFixed(1)}`);
+  if (!reduce) {
+    fileCircle.transition().duration(520).delay((d, i) => Math.min(i * 3, 450)).attr("r", (d) => d.r);
+  }
+
+  // pulsing ring on the riskiest files, staggered by risk rank
+  leaves.filter((d) => riskyRank.has(d.data.path)).append("circle")
+    .attr("class", "hot-pulse").attr("r", (d) => d.r)
+    .style("animation-delay", (d) => `${riskyRank.get(d.data.path) * 0.09}s`);
+
+  // ---- click to inspect ----
+  function showInspector(d) {
+    let card = body.querySelector(".inspector");
+    if (!card) { card = document.createElement("div"); card.className = "inspector"; body.appendChild(card); }
+    const chFrac = Math.round((d.data.changes / maxChanges) * 100);
+    const locFrac = Math.round((d.data.code / maxLoc) * 100);
+    card.innerHTML =
+      `<button class="close" aria-label="Close">×</button>` +
+      `<div class="ins-name">${d.data.name}</div>` +
+      `<div class="ins-path">${d.data.path}</div>` +
+      `<div class="ins-grid">` +
+        `<div class="ins-metric"><b style="color:${color(d.data.score)}">${d.data.score.toFixed(1)}</b><span>risk</span></div>` +
+        `<div class="ins-metric"><b>${d.data.code.toLocaleString()}</b><span>lines</span></div>` +
+        `<div class="ins-metric"><b>${d.data.changes}</b><span>changes</span></div>` +
+      `</div>` +
+      `<div class="ins-formula">` +
+        `<div class="ins-bar"><label>change frequency</label><div class="track"><span style="width:${chFrac}%;background:#f59e0b"></span></div><em>${chFrac}%</em></div>` +
+        `<div class="ins-bar"><label>size (lines)</label><div class="track"><span style="width:${locFrac}%;background:var(--accent)"></span></div><em>${locFrac}%</em></div>` +
+        `<div class="ins-note">risk = change × size = <b>${d.data.score.toFixed(1)}</b></div>` +
+      `</div>` +
+      `<button class="ins-copy">⧉ Copy path</button>`;
+    card.querySelector(".close").onclick = deselect;
+    card.querySelector(".ins-copy").onclick = () => copyPath(d.data.path);
+
+    // anchor beside the circle, computed from data coords (robust during the grow-in)
+    const bodyRect = body.getBoundingClientRect();
+    const svgRect = svg.node().getBoundingClientRect();
+    const cx = svgRect.left - bodyRect.left + (w - s) / 2 + d.x;
+    const cy = svgRect.top - bodyRect.top + (h - s) / 2 + d.y;
+    const r = d.r;
+    const cw = card.offsetWidth, ch = card.offsetHeight;
+    let left, side;
+    if (cx + r + 14 + cw <= bodyRect.width - 6) { left = cx + r + 14; side = "right"; }
+    else { left = Math.max(6, cx - r - 14 - cw); side = "left"; }
+    const top = Math.max(6, Math.min(cy - ch / 2, bodyRect.height - ch - 6));
+    card.className = "inspector " + side;
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
+    card.style.setProperty("--cy", `${Math.max(12, Math.min(cy - top, ch - 12))}px`);
+  }
+  function select(d, gEl) {
+    hotSelected = d.data.path;
+    g.selectAll("circle.hot-selected").remove();
+    d3.select(gEl).append("circle").attr("class", "hot-selected").attr("r", d.r);
+    showInspector(d);
+  }
+  function deselect() {
+    hotSelected = null;
+    g.selectAll("circle.hot-selected").remove();
+    const c = body.querySelector(".inspector"); if (c) c.remove();
+  }
+  fileCircle.on("click", function (e, d) { e.stopPropagation(); select(d, this.parentNode); });
+  svg.on("click", deselect);
+  if (hotSelected) leaves.filter((d) => d.data.path === hotSelected).each(function (d) { select(d, this); });
 
   // legend
   const lw = 140, lx = w - lw - 16, ly = 16;
@@ -363,32 +483,65 @@ function drawHeatmap(data) {
   const maxChurn = d3.max(data, (d) => d.churn) || 1;
   const color = d3.scaleSequential(d3.interpolateInferno).domain([0, Math.sqrt(maxChurn)]);
 
-  const svg = d3.select(host).append("svg").attr("width", width).attr("height", height);
+  const svg = d3.select(host).append("svg").attr("class", "heatmap").attr("width", width).attr("height", height);
   const x = (i) => M.left + i * CELL, y = (i) => M.top + i * CELL;
 
-  svg.append("g").selectAll("text").data(files).join("text")
-    .attr("x", M.left - 8).attr("y", (_, i) => y(i) + CELL / 2).attr("text-anchor", "end").attr("dy", "0.32em")
-    .attr("class", "row-label").text((f) => (f.length > 40 ? "…" + f.slice(-39) : f)).append("title").text((f) => f);
-
+  // week (column) labels
   svg.append("g").selectAll("text").data(weeks).join("text")
     .attr("transform", (_, i) => `translate(${x(i) + CELL / 2},${M.top - 8}) rotate(-60)`)
     .attr("class", "col-label").attr("display", (_, i) => (i % 4 === 0 ? null : "none")).text((wk) => wk);
 
-  const rows = svg.append("g");
-  files.forEach((f, ri) => weeks.forEach((wk, ci) => {
-    const d = cell.get(`${f}|${wk}`);
-    rows.append("rect").attr("x", x(ci)).attr("y", y(ri)).attr("width", CELL - 1).attr("height", CELL - 1).attr("rx", 2)
-      .attr("fill", d ? color(Math.sqrt(d.churn)) : "rgba(255,255,255,0.025)")
-      .append("title").text(d ? `${f}\n${wk}: +${d.added} / -${d.deleted} (${d.churn} churn)` : `${f}\n${wk}: no activity`);
-  }));
+  // one <g> per file row → enables the Excel-style row focus on hover
+  const rowsG = svg.append("g");
+  files.forEach((f, ri) => {
+    const row = rowsG.append("g").attr("class", "hm-row");
+
+    // full-width transparent backing: catches hover across labels, cells, and gaps
+    row.append("rect").attr("class", "hm-rowbg")
+      .attr("x", 6).attr("y", y(ri) - 1).attr("width", width - 12).attr("height", CELL);
+
+    row.append("text").attr("x", M.left - 8).attr("y", y(ri) + CELL / 2)
+      .attr("text-anchor", "end").attr("dy", "0.32em").attr("class", "row-label")
+      .text(f.length > 40 ? "…" + f.slice(-39) : f).append("title").text(f);
+
+    weeks.forEach((wk, ci) => {
+      const d = cell.get(`${f}|${wk}`);
+      const c = row.append("rect").attr("class", "hm-cell" + (d ? " act" : "")).attr("x", x(ci)).attr("y", y(ri))
+        .attr("width", CELL - 1).attr("height", CELL - 1).attr("rx", 2)
+        .attr("fill", d ? color(Math.sqrt(d.churn)) : "rgba(255,255,255,0.025)");
+      if (d) c.style("animation-delay", `${ci * 0.045}s`); // wave runs in week order
+      c.append("title").text(d ? `${f}\n${wk}: +${d.added} / -${d.deleted} (${d.churn} churn)` : `${f}\n${wk}: no activity`);
+    });
+
+    row.on("mouseenter", () => { svg.classed("row-hover", true); row.classed("active", true); })
+       .on("mouseleave", () => { svg.classed("row-hover", false); row.classed("active", false); })
+       .on("click", () => copyPath(f));
+  });
 }
 
 let sim = null;
-function drawForce(data) {
+let couplingMin = 2; // minimum co-change count shown (the hairball cutter)
+
+const cpDirOf = (id) => (id.includes("/") ? id.slice(0, id.indexOf("/")) : ".");
+// stable top-level-directory color scale over the WHOLE coupling set
+function couplingColor(all) {
+  const s = new Set();
+  all.forEach((p) => { s.add(cpDirOf(p.file_a)); s.add(cpDirOf(p.file_b)); });
+  return d3.scaleOrdinal(Array.from(s).sort(), d3.schemeTableau10.concat(d3.schemeSet3));
+}
+
+function drawForce(all) {
   const host = el(); host.innerHTML = "";
   if (sim) sim.stop();
   const [w, h] = size();
-  if (!data.length || w < 10 || h < 10) return;
+  if (!all.length || w < 10 || h < 10) return;
+
+  const color = couplingColor(all);
+  const data = all.filter((p) => p.count >= couplingMin); // apply strength filter
+  if (!data.length) {
+    host.innerHTML = `<p class="empty">No couplings at ≥ ${couplingMin} co-changes. Lower the threshold.</p>`;
+    return;
+  }
 
   const nodeMap = new Map();
   const bump = (id, c) => { const n = nodeMap.get(id) || { id, weight: 0 }; n.weight += c; nodeMap.set(id, n); };
@@ -396,59 +549,112 @@ function drawForce(data) {
   const nodes = Array.from(nodeMap.values());
   const links = data.map((p) => ({ source: p.file_a, target: p.file_b, count: p.count }));
 
+  // adjacency for hover-to-isolate (built from ids, before the sim mutates links)
+  const adj = new Map(nodes.map((n) => [n.id, new Set([n.id])]));
+  for (const p of data) { adj.get(p.file_a).add(p.file_b); adj.get(p.file_b).add(p.file_a); }
+
   const maxCount = d3.max(data, (d) => d.count) || 1;
   const maxWeight = d3.max(nodes, (d) => d.weight) || 1;
   const radius = d3.scaleSqrt().domain([0, maxWeight]).range([3, 22]);
   const thickness = d3.scaleLinear().domain([1, maxCount]).range([0.5, 5]);
-  const dirOf = (id) => (id.includes("/") ? id.slice(0, id.indexOf("/")) : ".");
-  const dirs = Array.from(new Set(nodes.map((n) => dirOf(n.id))));
-  const color = d3.scaleOrdinal(dirs, d3.schemeTableau10.concat(d3.schemeSet3));
 
   const svg = d3.select(host).append("svg").attr("class", "force").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
   const container = svg.append("g");
   svg.call(d3.zoom().scaleExtent([0.2, 5]).on("zoom", (e) => container.attr("transform", e.transform)));
 
-  const link = container.append("g").attr("stroke", "#4b5563").attr("stroke-opacity", 0.5).selectAll("line").data(links).join("line").attr("stroke-width", (d) => thickness(d.count));
+  const link = container.append("g").attr("stroke", "#4b5563").attr("stroke-opacity", 0.5)
+    .selectAll("line").data(links).join("line").attr("stroke-width", (d) => thickness(d.count));
   link.append("title").text((d) => `${d.count}× together`);
-  const node = container.append("g").selectAll("g").data(nodes).join("g").call(drag());
-  node.append("circle").attr("r", (d) => radius(d.weight)).attr("fill", (d) => color(dirOf(d.id))).attr("stroke", "var(--bg)").attr("stroke-width", 1.5)
+
+  const node = container.append("g").selectAll("g").data(nodes).join("g").attr("class", "node").call(drag());
+  node.append("circle").attr("r", (d) => radius(d.weight)).attr("fill", (d) => color(cpDirOf(d.id)))
+    .attr("stroke", "var(--bg)").attr("stroke-width", 1.5)
     .append("title").text((d) => `${d.id}\ntotal coupling ${d.weight}`);
-  node.filter((d) => radius(d.weight) > 8).append("text").attr("class", "node-label").attr("x", (d) => radius(d.weight) + 3).attr("dy", "0.32em").text((d) => d.id.split("/").pop());
+  const labels = node.append("text").attr("class", "node-label").attr("x", (d) => radius(d.weight) + 3).attr("dy", "0.32em")
+    .attr("display", (d) => (radius(d.weight) > 9 ? null : "none")).text((d) => d.id.split("/").pop());
+
+  // hover a node → isolate it + its coupled partners
+  node.on("mouseover", (e, d) => {
+    const keep = adj.get(d.id);
+    svg.classed("focusing", true);
+    node.classed("hot", (n) => keep.has(n.id));
+    link.classed("hot", (l) => l.source.id === d.id || l.target.id === d.id);
+    labels.attr("display", (n) => (keep.has(n.id) ? null : "none"));
+  }).on("mouseout", () => {
+    svg.classed("focusing", false);
+    node.classed("hot", false);
+    link.classed("hot", false);
+    labels.attr("display", (n) => (radius(n.weight) > 9 ? null : "none"));
+  }).on("click", (e, d) => copyPath(d.id));
 
   sim = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id((d) => d.id).distance((d) => 90 - thickness(d.count) * 6).strength(0.4))
-    .force("charge", d3.forceManyBody().strength(-160))
+    .force("link", d3.forceLink(links).id((d) => d.id).distance((d) => 90 - thickness(d.count) * 6).strength(0.45))
+    .force("charge", d3.forceManyBody().strength(-200))
     .force("center", d3.forceCenter(w / 2, h / 2))
-    .force("collide", d3.forceCollide().radius((d) => radius(d.weight) + 4))
+    .force("collide", d3.forceCollide().radius((d) => radius(d.weight) + 5))
     .on("tick", () => {
       link.attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y).attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
       node.attr("transform", (d) => `translate(${d.x},${d.y})`);
     });
 
   function drag() {
-    return d3.drag()
+    return d3.drag().clickDistance(5) // tiny moves still count as a click (copy)
       .on("start", (e) => { if (!e.active) sim.alphaTarget(0.3).restart(); e.subject.fx = e.subject.x; e.subject.fy = e.subject.y; })
       .on("drag", (e) => { e.subject.fx = e.x; e.subject.fy = e.y; })
       .on("end", (e) => { if (!e.active) sim.alphaTarget(0); e.subject.fx = null; e.subject.fy = null; });
   }
 }
 
+// Coupling controls: strength slider + directory color legend.
+function renderCouplingFilter(all) {
+  const bar = document.getElementById("viz-filter");
+  bar.innerHTML = "";
+  const maxCount = d3.max(all, (d) => d.count) || 2;
+  couplingMin = Math.min(Math.max(2, couplingMin), maxCount);
+  const color = couplingColor(all);
+
+  const ctrl = document.createElement("div");
+  ctrl.className = "cp-control";
+  ctrl.innerHTML = `<span>min co-changes</span>`;
+  const range = document.createElement("input");
+  range.type = "range"; range.min = 2; range.max = maxCount; range.step = 1; range.value = couplingMin;
+  const val = document.createElement("span"); val.className = "cp-val";
+  const count = document.createElement("span"); count.className = "cp-count";
+  ctrl.append(range, val, count);
+
+  const legend = document.createElement("div");
+  legend.className = "cp-legend";
+  bar.append(ctrl, legend);
+
+  function refresh() {
+    val.textContent = `≥ ${couplingMin}`;
+    const pairs = all.filter((p) => p.count >= couplingMin);
+    const ns = new Set();
+    pairs.forEach((p) => { ns.add(p.file_a); ns.add(p.file_b); });
+    count.textContent = `· ${pairs.length} links, ${ns.size} files`;
+    const dirs = Array.from(new Set([...ns].map(cpDirOf))).sort();
+    legend.innerHTML = dirs.map((dir) => `<span class="item"><span class="sw" style="background:${color(dir)}"></span>${dir}</span>`).join("");
+  }
+  range.oninput = () => { couplingMin = +range.value; refresh(); drawForce(DATA.coupling); };
+  refresh();
+}
+
 // =====================================================================
 //  TAB CONTROLLER
 // =====================================================================
 const TABS = [
-  { id: "loc", label: "LOC", title: "Lines of Code", desc: "The largest files by lines of code — area is size, color is file type. The 10 biggest are ranked.", draw: drawTreemap, key: "loc", scroll: false,
+  { id: "loc", label: "LOC", title: "Lines of Code", desc: "The largest files by lines of code — area is size, color is file type. The 10 biggest are ranked. Click a file to copy its path.", draw: drawTreemap, key: "loc", scroll: false,
     meta: (d) => {
       const pool = locFilter ? d.loc.filter((f) => f.extension === locFilter) : d.loc;
       const n = Math.min(LOC_TOP, pool.length);
       const total = pool.reduce((s, f) => s + f.code, 0);
       return `${locFilter ? "." + locFilter + " · " : ""}top ${n} of ${pool.length} files · ${total.toLocaleString()} LOC`;
     } },
-  { id: "hotspots", label: "Hotspots", title: "Hotspots", desc: "Circle size is lines of code, color is change frequency. Big and red = risky.", draw: drawCirclePacking, key: "hotspots", scroll: false,
-    meta: (d) => `${d.hotspots.length} files` },
-  { id: "churn", label: "Churn", title: "Churn", desc: "Rows are files, columns are weeks. Brighter cells = more lines added + deleted that week.", draw: drawHeatmap, key: "churn", scroll: true,
+  { id: "hotspots", label: "Hotspots", title: "Hotspots", desc: "Circle size is lines of code, color is change frequency — redder is riskier. The 10 riskiest pulse; click any file for details.", draw: drawCirclePacking, key: "hotspots", scroll: false,
+    meta: (d) => `${d.hotspots.length} files · top ${TOP_RANK} riskiest pulsing` },
+  { id: "churn", label: "Churn", title: "Churn", desc: "Rows are files, columns are weeks. Brighter cells = more lines added + deleted that week. Hover a row to focus its history, click it to copy the path.", draw: drawHeatmap, key: "churn", scroll: true,
     meta: (d) => `${d.churn.length} file·weeks` },
-  { id: "coupling", label: "Coupling", title: "Coupling", desc: "Files that change together are linked. Thicker edges = stronger coupling. Drag nodes, scroll to zoom.", draw: drawForce, key: "coupling", scroll: false,
+  { id: "coupling", label: "Coupling", title: "Coupling", desc: "Files that change together are linked — thicker = stronger, color = top-level folder. Raise the threshold to cut the hairball; hover a file to isolate its couplings, click it to copy the path.", draw: drawForce, key: "coupling", scroll: false,
     meta: (d) => `${d.coupling.length} coupled pairs` },
 ];
 
@@ -472,9 +678,13 @@ function renderActive() {
   document.getElementById("viz-title").textContent = t.title;
   document.getElementById("viz-desc").textContent = t.desc;
   document.getElementById("viz-meta").textContent = t.meta(DATA);
-  document.getElementById("viz-body").classList.toggle("scroll", t.scroll);
-  // LOC view gets the file-type filter chips; other views clear the bar
+  const vb = document.getElementById("viz-body");
+  vb.classList.toggle("scroll", t.scroll);
+  vb.querySelectorAll(".inspector").forEach((e) => e.remove()); // drop stale inspector card
+  if (t.id !== "hotspots") hotSelected = null;
+  // per-view controls in the filter bar
   if (t.id === "loc") renderLocFilter(DATA.loc);
+  else if (t.id === "coupling") renderCouplingFilter(DATA.coupling);
   else document.getElementById("viz-filter").innerHTML = "";
   requestAnimationFrame(() => t.draw(DATA[t.key]));
 }
@@ -483,6 +693,8 @@ function analyze() {
   const ds = document.getElementById("dataset").value;
   DATA = simulate(DATASETS[ds]);
   locFilter = null; // reset type filter for the new project
+  hotSelected = null; // reset hotspot selection
+  couplingMin = 2; // reset coupling strength filter
   renderTabs();
   renderActive();
 }
