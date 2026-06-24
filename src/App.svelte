@@ -14,10 +14,18 @@
   let analyzed = $state(false);
   let activeTab = $state("loc");
 
+  let project = $state(""); // name of the project being / last analyzed
+
   let loc = $state(null);
   let hotspots = $state(null);
   let churn = $state(null);
   let coupling = $state(null);
+
+  const baseName = (p) => {
+    const s = p.replace(/[/\\]+$/, "");
+    const i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+    return i >= 0 ? s.slice(i + 1) : s;
+  };
 
   const tabs = [
     { id: "loc", label: "LOC" },
@@ -39,6 +47,8 @@
     if (!path.trim() || loading) return;
     loading = true;
     error = "";
+    activeTab = "loc"; // always start a fresh analysis on the first tab
+    project = baseName(path);
     loc = hotspots = churn = coupling = null;
 
     try {
@@ -69,7 +79,10 @@
   <header class="topbar">
     <div class="brand">
       <span class="logo">⌖</span>
-      <h1>Xray</h1>
+      <div class="title">
+        <h1>Xray</h1>
+        <span class="author">by @carlogilmar</span>
+      </div>
     </div>
 
     <div class="controls">
@@ -111,15 +124,25 @@
           class="tab"
           class:active={activeTab === t.id}
           onclick={() => (activeTab = t.id)}
+          disabled={loading}
         >
           {t.label}
         </button>
       {/each}
+      {#if project}
+        <span class="project" title={path}>
+          <span class="dot" class:busy={loading}></span>{project}
+        </span>
+      {/if}
     </nav>
 
     <section class="stage">
       {#if loading}
-        <p class="empty">Running four analyses in parallel…</p>
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Analyzing <b>{project}</b>…</p>
+          <span class="sub">running four analyses in parallel</span>
+        </div>
       {:else if activeTab === "loc"}
         <LocTab data={loc} />
       {:else if activeTab === "hotspots"}
@@ -140,6 +163,7 @@
           history — size, hotspots, churn over time, and hidden coupling.
         </p>
         <button class="primary" onclick={pickDirectory}>Choose a directory…</button>
+        <span class="welcome-author">made by @carlogilmar</span>
       </div>
     </section>
   {/if}
@@ -175,9 +199,20 @@
   .logo.big {
     font-size: 3rem;
   }
+  .title {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.05;
+  }
   h1 {
     font-size: 1.15rem;
     letter-spacing: 0.04em;
+  }
+  .author {
+    font-size: 0.62rem;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    font-family: var(--mono);
   }
 
   .controls {
@@ -275,12 +310,72 @@
     color: var(--accent);
     border-bottom-color: var(--accent);
   }
+  .tab:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .project {
+    margin-left: auto;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text);
+    max-width: 40ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .project .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .project .dot.busy {
+    animation: dotPulse 1s ease-in-out infinite;
+  }
+  @keyframes dotPulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
   .stage {
     flex: 1;
     min-height: 0;
     overflow: hidden;
     position: relative;
+  }
+
+  .loading {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+  }
+  .loading p {
+    margin: 0;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  .loading .sub {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+  }
+  .spinner {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 2s; }
+    .project .dot.busy { animation: none; opacity: 0.7; }
   }
 
   .welcome {
@@ -304,5 +399,12 @@
     color: var(--text-dim);
     line-height: 1.5;
     margin: 0;
+  }
+  .welcome-author {
+    margin-top: 0.4rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
   }
 </style>
