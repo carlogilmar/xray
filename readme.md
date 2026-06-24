@@ -13,6 +13,7 @@ Point it at a directory, click **Analyze**, and get four views:
 | **Hotspots** | Which files are large **and** churn-heavy? | Circle packing |
 | **Churn** | What's being rewritten, and when? | Heatmap |
 | **Coupling** | Which files always change together? | Force-directed graph |
+| **Owners** | Who's behind the project, and how much do they own? | Treemap by author |
 
 Built with **Tauri 2 + Svelte 5 + D3 v7** (frontend) and **Rust** (analysis).
 Only `git` is required at runtime — churn and coupling shell out to `git log`;

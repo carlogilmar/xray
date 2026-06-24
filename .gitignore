@@ -12,6 +12,9 @@ src-tauri/gen
 # generated icon source
 app-icon.png
 
+# generated design mock (regenerate with ./mockup/build.sh)
+mockup/index.html
+
 # logs / os
 *.log
 .DS_Store

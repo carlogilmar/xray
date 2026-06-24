@@ -123,7 +123,7 @@ src-tauri/src/
 ```
 
 `src-tauri/examples/smoke.rs` is a throwaway runner (`cargo run --example smoke -- <path>`)
-that prints a summary of all four analyses — handy for verifying the backend without the GUI.
+that prints a summary of all five analyses — handy for verifying the backend without the GUI.
 
 ### Tauri commands
 
@@ -139,7 +139,12 @@ fn analyze_churn(path: String, days: u32) -> Vec<ChurnWeekStat>
 
 #[tauri::command]
 fn analyze_coupling(path: String) -> Vec<CouplingPair>
+
+#[tauri::command]
+fn analyze_ownership(path: String) -> Vec<Contributor>
 ```
+
+All commands actually return `Result<Vec<T>, String>` so analysis errors surface in the UI.
 
 ### Key types
 
@@ -173,6 +178,14 @@ struct CouplingPair {
     file_b: String,
     count: usize,
 }
+
+struct Contributor {
+    author: String,
+    owned_files: usize,
+    owned_loc: usize,
+    commits: usize,
+    share: f64,       // owned_loc / total owned LOC
+}
 ```
 
 ---
@@ -201,7 +214,7 @@ Default extensions included:
 - **Four tabs** over a single dashboard — each visualization needs space to breathe, especially the force graph and heatmap.
 - **Native line counting** in Rust — no dependency on `cloc`.
 - **Only `git` required** at runtime — churn and coupling shell out to `git log`; everything else is pure filesystem.
-- **All four analyses run in parallel** on click — Tauri commands are async; frontend renders each tab as its data resolves.
+- **All five analyses run in parallel** on click — Tauri commands are async; frontend renders each tab as its data resolves.
 - **D3 owned by Svelte components** — each visualization component manages its own D3 instance; no shared global D3 state.
 - **Risk is a product, not an average** — `changeFrac × sizeFrac`, so only files high on *both* axes (Tornhill's intersection) score as hotspots.
 - **Copy-to-editor everywhere** — the call to action is "open this file," so every view lets the dev click a file to copy its path (toast confirms). In the desktop build this uses the webview clipboard.
