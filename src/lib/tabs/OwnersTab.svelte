@@ -1,21 +1,21 @@
 <script>
-  import CirclePacking from "../visualizations/CirclePacking.svelte";
+  import TeamTreemap from "../visualizations/TeamTreemap.svelte";
   let { data } = $props();
 </script>
 
 <div class="tab">
   <header>
     <div>
-      <h2>Hotspots</h2>
-      <p>Circle size is lines of code, color is change frequency — redder is riskier. The 10 riskiest pulse; click any file for details, scroll to zoom.</p>
+      <h2>The Team</h2>
+      <p>Who's behind this project — each author sized by their share of the codebase (lines contributed). Click an author to copy their handle.</p>
     </div>
-    {#if data}<span class="meta">{data.length} files · top 10 riskiest pulsing</span>{/if}
+    {#if data}<span class="meta">{data.length} contributors</span>{/if}
   </header>
   <div class="body">
     {#if data && data.length}
-      <CirclePacking {data} />
+      <TeamTreemap {data} />
     {:else}
-      <p class="empty">No data — is this a git repository?</p>
+      <p class="empty">No authored history — is this a git repository?</p>
     {/if}
   </div>
 </div>
@@ -26,5 +26,5 @@
   header h2 { font-size: 1rem; }
   header p { margin: 0.22rem 0 0; color: var(--text-dim); font-size: 0.8rem; max-width: 70ch; }
   .meta { color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; text-align: right; white-space: nowrap; }
-  .body { flex: 1; min-height: 0; padding: 0 0.7rem 0.7rem; position: relative; }
+  .body { flex: 1; min-height: 0; padding: 0 0.7rem 0.7rem; }
 </style>

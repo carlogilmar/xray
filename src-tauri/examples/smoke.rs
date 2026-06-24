@@ -1,6 +1,6 @@
 //! Throwaway smoke test: run all four analyses against a path and print a
 //! summary. Usage: cargo run --example smoke -- <path>
-use xray_lib::commands::{churn, coupling, hotspots, loc};
+use xray_lib::commands::{churn, coupling, hotspots, loc, ownership};
 
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| "..".to_string());
@@ -27,9 +27,21 @@ fn main() {
         println!("  {} {}  +{} -{}", c.week, c.path, c.added, c.deleted);
     }
 
-    let cp = coupling::analyze_coupling(path).unwrap();
+    let cp = coupling::analyze_coupling(path.clone()).unwrap();
     println!("\nCoupling: {} pairs", cp.len());
     for p in cp.iter().take(3) {
         println!("  {}x  {}  <->  {}", p.count, p.file_a, p.file_b);
+    }
+
+    let ow = ownership::analyze_ownership(path).unwrap();
+    println!("\nOwners: {} contributors", ow.len());
+    for c in ow.iter().take(5) {
+        println!(
+            "  @{:<8} {:>3.0}%  {} files  {} commits",
+            c.author,
+            c.share * 100.0,
+            c.owned_files,
+            c.commits
+        );
     }
 }

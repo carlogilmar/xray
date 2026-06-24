@@ -35,3 +35,12 @@ pub struct CouplingPair {
     pub file_b: String,
     pub count: usize,
 }
+
+#[derive(Serialize, Clone)]
+pub struct Contributor {
+    pub author: String,
+    pub owned_files: usize,
+    pub owned_loc: usize,
+    pub commits: usize,
+    pub share: f64, // owned_loc / total owned LOC
+}

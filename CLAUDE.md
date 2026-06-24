@@ -1,12 +1,12 @@
 # Xray — Claude Code Context
 
-A desktop app built with **Tauri + Svelte + Rust** that analyzes any project directory and displays interactive D3 visualizations across four tabs.
+A desktop app built with **Tauri + Svelte + Rust** that analyzes any project directory and displays interactive D3 visualizations across five tabs.
 
 ---
 
 ## What it does
 
-The user picks a directory, clicks Analyze, and gets four visual analyses of the codebase — each in its own tab with a D3 visualization designed to make the insight immediately visible.
+The user picks a directory, clicks Analyze, and gets five visual analyses of the codebase — each in its own tab with a D3 visualization designed to make the insight immediately visible.
 
 | Tab | Analysis | Visualization |
 |---|---|---|
@@ -14,6 +14,7 @@ The user picks a directory, clicks Analyze, and gets four visual analyses of the
 | **Hotspots** | Which files are large AND frequently changed? | Circle Packing |
 | **Churn** | Which files are being rewritten the most, and when? | Heatmap |
 | **Coupling** | Which files always change together? | Force-directed graph |
+| **Owners** | Who is behind this project, and how much do they own? | Treemap (by author) |
 
 ---
 
@@ -56,6 +57,10 @@ Files (top 45 by total churn) on the Y axis, active weeks on the X axis, cell co
 
 Files as nodes, edges between files that co-changed in the same commit. Edge thickness = coupling count, node size = total coupling, **node color = top-level directory** (shown in a legend). A **strength slider** raises the minimum co-change count to cut the hairball down to meaningful couplings. **Hover a node** to isolate it + its coupled partners (everything else fades). Drag to reposition, scroll to zoom, click a node to copy its path.
 
+### Tab 5 — Owners: Team treemap
+
+The team behind the project: a treemap where **each rectangle is a contributor**, sized by their share of the codebase. Ownership = churn contribution (added + deleted lines); a file's owner is the author who contributed the most to it, and a contributor's share is the total LOC of the files they own. Each cell is colored per author and labeled with `@author` and their `% · N files`. Hover for `% · files · commits`; click an author to copy their handle. Deliberately simple — it answers "who do I ask about this?", not per-file ownership.
+
 ---
 
 ## Architecture
@@ -77,11 +82,13 @@ src/
       HotspotsTab.svelte  # circle packing
       ChurnTab.svelte     # heatmap
       CouplingTab.svelte  # force graph + strength slider + dir legend
+      OwnersTab.svelte    # team treemap
     visualizations/
       Treemap.svelte      # D3 treemap component
       CirclePacking.svelte
       Heatmap.svelte
       ForceGraph.svelte
+      TeamTreemap.svelte  # contributors sized by ownership
 ```
 
 Each visualization component receives its data (and any control state, e.g.
@@ -110,6 +117,7 @@ src-tauri/src/
     hotspots.rs   # git log + loc join, risk = changeFrac * sizeFrac * 100
     churn.rs      # git log --numstat --since, aggregate by file + week
     coupling.rs   # git log --name-only, find co-changed pairs
+    ownership.rs  # git log --numstat --pretty=%an, ownership per author
     util.rs       # shared file walking, filtering, line counting
   models.rs       # shared structs + serde types
 ```

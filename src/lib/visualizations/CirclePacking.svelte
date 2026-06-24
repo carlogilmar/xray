@@ -50,8 +50,12 @@
     const risky = data.slice().sort((a, b) => b.score - a.score).slice(0, TOP_RANK).map((d) => d.path);
     const riskyRank = new Map(risky.map((p, i) => [p, i]));
 
-    const svg = d3.select(el).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
-    const g = svg.append("g").attr("transform", `translate(${(w - s) / 2},${(h - s) / 2})`);
+    const svg = d3.select(el).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`).style("cursor", "grab");
+    const zoomG = svg.append("g"); // pan/zoom transform applies here
+    const g = zoomG.append("g").attr("transform", `translate(${(w - s) / 2},${(h - s) / 2})`);
+
+    let zt = d3.zoomIdentity; // current zoom transform (for inspector positioning)
+    svg.call(d3.zoom().scaleExtent([0.5, 8]).on("zoom", (e) => { zt = e.transform; zoomG.attr("transform", e.transform); }));
 
     const node = g.selectAll("g.node").data(root.descendants()).join("g")
       .attr("class", "node").attr("transform", (d) => `translate(${d.x},${d.y})`);
@@ -102,9 +106,10 @@
 
       const elRect = el.getBoundingClientRect();
       const svgRect = svg.node().getBoundingClientRect();
-      const cx = svgRect.left - elRect.left + (w - s) / 2 + d.x;
-      const cy = svgRect.top - elRect.top + (h - s) / 2 + d.y;
-      const r = d.r;
+      const [px, py] = zt.apply([(w - s) / 2 + d.x, (h - s) / 2 + d.y]); // account for zoom/pan
+      const cx = svgRect.left - elRect.left + px;
+      const cy = svgRect.top - elRect.top + py;
+      const r = d.r * zt.k;
       const cw = card.offsetWidth, ch = card.offsetHeight;
       let left, side;
       if (cx + r + 14 + cw <= elRect.width - 6) { left = cx + r + 14; side = "right"; }

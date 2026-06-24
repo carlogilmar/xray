@@ -6,6 +6,7 @@
   import HotspotsTab from "./lib/tabs/HotspotsTab.svelte";
   import ChurnTab from "./lib/tabs/ChurnTab.svelte";
   import CouplingTab from "./lib/tabs/CouplingTab.svelte";
+  import OwnersTab from "./lib/tabs/OwnersTab.svelte";
 
   let path = $state("");
   let days = $state(365);
@@ -20,6 +21,7 @@
   let hotspots = $state(null);
   let churn = $state(null);
   let coupling = $state(null);
+  let owners = $state(null);
 
   const baseName = (p) => {
     const s = p.replace(/[/\\]+$/, "");
@@ -32,6 +34,7 @@
     { id: "hotspots", label: "Hotspots" },
     { id: "churn", label: "Churn" },
     { id: "coupling", label: "Coupling" },
+    { id: "owners", label: "Owners" },
   ];
 
   async function pickDirectory() {
@@ -49,19 +52,21 @@
     error = "";
     activeTab = "loc"; // always start a fresh analysis on the first tab
     project = baseName(path);
-    loc = hotspots = churn = coupling = null;
+    loc = hotspots = churn = coupling = owners = null;
 
     try {
-      const [l, h, c, cp] = await Promise.all([
+      const [l, h, c, cp, ow] = await Promise.all([
         invoke("analyze_loc", { path }),
         invoke("analyze_hotspots", { path }),
         invoke("analyze_churn", { path, days }),
         invoke("analyze_coupling", { path }),
+        invoke("analyze_ownership", { path }),
       ]);
       loc = l;
       hotspots = h;
       churn = c;
       coupling = cp;
+      owners = ow;
       analyzed = true;
     } catch (e) {
       error = String(e);
@@ -151,6 +156,8 @@
         <ChurnTab data={churn} />
       {:else if activeTab === "coupling"}
         <CouplingTab data={coupling} />
+      {:else if activeTab === "owners"}
+        <OwnersTab data={owners} />
       {/if}
     </section>
   {:else}

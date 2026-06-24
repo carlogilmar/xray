@@ -1,7 +1,7 @@
 pub mod commands;
 pub mod models;
 
-use commands::{churn, coupling, hotspots, loc};
+use commands::{churn, coupling, hotspots, loc, ownership};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -12,6 +12,7 @@ pub fn run() {
             hotspots::analyze_hotspots,
             churn::analyze_churn,
             coupling::analyze_coupling,
+            ownership::analyze_ownership,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

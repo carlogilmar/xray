@@ -36,6 +36,8 @@ const AREAS = [
   { dir: "styles", ext: ["css", "scss"], names: ["global", "tokens", "layout", "theme"] },
 ];
 
+const AUTHORS = ["carlo", "ana", "luis", "mei", "sam", "kim", "raj", "dev", "noa", "tom"];
+
 function buildFiles(cfg, r) {
   const files = [];
   let fid = 0;
@@ -68,12 +70,26 @@ function simulate(cfg) {
 
   const churn = new Map(); // "path|week" -> {added,deleted}
   const pairs = new Map(); // "a|b" -> count
+  const fileAuthors = new Map(); // path -> Map(author -> lines contributed)
+  const authorCommits = new Map(); // author -> commit count
   const isoWeek = (w) => `2025-W${String((w % 52) + 1).padStart(2, "0")}`;
+
+  // active team for this project; each feature has a primary owner → territories
+  const team = AUTHORS.slice(0, Math.min(AUTHORS.length, Math.max(3, Math.round(cfg.features / 1.6))));
+  const featureOwner = (feat) => team[feat % team.length];
+  const ownLine = (path, author, lines) => {
+    let m = fileAuthors.get(path);
+    if (!m) { m = new Map(); fileAuthors.set(path, m); }
+    m.set(author, (m.get(author) || 0) + lines);
+  };
 
   for (let c = 0; c < cfg.commits; c++) {
     const week = Math.floor(r() * cfg.weeks);
     const feat = Math.floor(r() * cfg.features);
     const pool = byFeature[feat] || files;
+    // commit author: mostly the feature's owner, sometimes someone else
+    const author = r() < 0.75 ? featureOwner(feat) : team[Math.floor(r() * team.length)];
+    authorCommits.set(author, (authorCommits.get(author) || 0) + 1);
     // commit touches a few files, mostly from one feature (coupling), weighted by activity
     const maxFiles = cfg.big ? 8 : 5;
     const n = 1 + Math.floor(r() * Math.min(maxFiles, pool.length));
@@ -101,9 +117,11 @@ function simulate(cfg) {
       const key = `${f.path}|${isoWeek(week)}`;
       const cur = churn.get(key) || { added: 0, deleted: 0 };
       const mag = Math.round(3 + r() * 60);
+      const del = Math.round(mag * (0.2 + r() * 0.7));
       cur.added += mag;
-      cur.deleted += Math.round(mag * (0.2 + r() * 0.7));
+      cur.deleted += del;
       churn.set(key, cur);
+      ownLine(f.path, author, mag + del); // ownership = churn contribution
     }
     // coupling pairs
     touched.sort((a, b) => a.path.localeCompare(b.path));
@@ -153,7 +171,51 @@ function simulate(cfg) {
   coupling.sort((a, b) => b.count - a.count);
   coupling.splice(200);
 
-  return { loc, hotspots, churn: churnArr, coupling };
+  // ---- ownership / knowledge map ----
+  const ownership = files
+    .map((f) => {
+      const m = fileAuthors.get(f.path);
+      const entries = m ? Array.from(m.entries()).sort((a, b) => b[1] - a[1]) : [];
+      const total = entries.reduce((s, e) => s + e[1], 0) || 1;
+      const main = entries[0] || ["unowned", 0];
+      return {
+        path: f.path,
+        code: f.code,
+        main_author: main[0],
+        main_share: main[1] / total,
+        author_count: entries.length,
+        authors: entries.map(([author, lines]) => ({ author, lines, share: lines / total })),
+      };
+    })
+    .sort((a, b) => b.code - a.code);
+
+  const totalLoc = files.reduce((s, f) => s + f.code, 0) || 1;
+  const contribAgg = new Map();
+  const getC = (a) => {
+    let c = contribAgg.get(a);
+    if (!c) { c = { author: a, ownedFiles: 0, ownedLoc: 0, lines: 0, commits: 0 }; contribAgg.set(a, c); }
+    return c;
+  };
+  for (const f of ownership) {
+    if (f.main_author !== "unowned") {
+      const c = getC(f.main_author);
+      c.ownedFiles++;
+      c.ownedLoc += f.code;
+    }
+    f.authors.forEach((a) => (getC(a.author).lines += a.lines));
+  }
+  for (const [author, n] of authorCommits) getC(author).commits = n;
+  const contributors = Array.from(contribAgg.values())
+    .map((c) => ({ ...c, share: c.ownedLoc / totalLoc }))
+    .sort((a, b) => b.ownedLoc - a.ownedLoc);
+
+  return { loc, hotspots, churn: churnArr, coupling, ownership, contributors };
+}
+
+// stable color-per-author, ordered by ownership (matches the contributor chips)
+function authorColor(contributors) {
+  const names = contributors.map((c) => c.author);
+  return d3.scaleOrdinal(names, d3.schemeTableau10.concat(d3.schemeSet2, d3.schemePaired));
 }
 
 // ---- hierarchy helper shared by treemap + circle packing ----
@@ -347,6 +409,82 @@ function renderLocFilter(all) {
   }
 }
 
+// =====================================================================
+//  OWNERS — the team behind the project (treemap of authors by ownership %)
+// =====================================================================
+
+// readable text color for a given fill, by perceived luminance
+function textOn(fill) {
+  const c = d3.color(fill);
+  if (!c) return "#0b1016";
+  const { r, g, b } = c.rgb();
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#0b1016" : "#f0f4f8";
+}
+
+function drawKnowledgeMap() {
+  const host = el(); host.innerHTML = "";
+  const [w, h] = size();
+  const contributors = DATA.contributors;
+  if (!contributors || !contributors.length || w < 10 || h < 10) return;
+
+  const color = authorColor(contributors);
+  const totalOwned = d3.sum(contributors, (c) => c.ownedLoc) || 1;
+
+  // each rectangle is a contributor, area = their share of the codebase
+  const root = d3
+    .hierarchy({
+      name: "root",
+      children: contributors.map((c) => ({
+        name: c.author,
+        value: Math.max(c.ownedLoc, 1),
+        pct: Math.round((c.ownedLoc / totalOwned) * 100),
+        files: c.ownedFiles,
+        commits: c.commits,
+      })),
+    })
+    .sum((d) => d.value || 0)
+    .sort((a, b) => b.value - a.value);
+
+  d3.treemap().size([w, h]).paddingInner(3).round(true)(root);
+
+  const svg = d3.select(host).append("svg").attr("class", "treemap")
+    .attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
+
+  const leaf = svg.selectAll("g.leaf").data(root.leaves()).join("g")
+    .attr("class", "leaf")
+    .attr("transform", (d) => `translate(${d.x0},${d.y0})`)
+    .on("click", (e, d) => copyPath("@" + d.data.name)); // copy the handle to ping them
+
+  leaf.append("rect")
+    .attr("width", (d) => Math.max(0, d.x1 - d.x0))
+    .attr("height", (d) => Math.max(0, d.y1 - d.y0))
+    .attr("rx", 5).attr("ry", 5)
+    .attr("fill", (d) => color(d.data.name))
+    .attr("stroke", "var(--bg)").attr("stroke-width", 0.5)
+    .append("title")
+    .text((d) => `@${d.data.name}\n${d.data.pct}% of the codebase · ${d.data.files} files · ${d.data.commits} commits`);
+
+  leaf.each(function (d) {
+    const L = labelLayout("@" + d.data.name, d.x1 - d.x0, d.y1 - d.y0);
+    if (!L) return;
+    const g = d3.select(this);
+    const cx = (d.x1 - d.x0) / 2, cy = (d.y1 - d.y0) / 2;
+    const ink = textOn(color(d.data.name));
+    g.append("text").attr("class", "tm-label")
+      .attr("x", cx).attr("y", L.showSub ? cy - L.subFs * 0.7 : cy)
+      .attr("text-anchor", "middle").attr("dominant-baseline", "central")
+      .attr("font-size", L.fs).style("fill", ink).text(L.text);
+    if (L.showSub) {
+      g.append("text").attr("class", "tm-label")
+        .attr("x", cx).attr("y", cy + L.fs * 0.6)
+        .attr("text-anchor", "middle").attr("dominant-baseline", "central")
+        .attr("font-size", L.subFs * 1.1).attr("font-weight", 500)
+        .style("fill", ink).style("opacity", 0.85)
+        .text(`${d.data.pct}% · ${d.data.files} files`);
+    }
+  });
+}
+
 let hotSelected = null; // selected file path, persists across resize redraws
 
 function drawCirclePacking(data) {
@@ -371,8 +509,12 @@ function drawCirclePacking(data) {
   const risky = data.slice().sort((a, b) => b.score - a.score).slice(0, TOP_RANK).map((d) => d.path);
   const riskyRank = new Map(risky.map((p, i) => [p, i]));
 
-  const svg = d3.select(host).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
-  const g = svg.append("g").attr("transform", `translate(${(w - s) / 2},${(h - s) / 2})`);
+  const svg = d3.select(host).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`).style("cursor", "grab");
+  const zoomG = svg.append("g");
+  const g = zoomG.append("g").attr("transform", `translate(${(w - s) / 2},${(h - s) / 2})`);
+
+  let zt = d3.zoomIdentity;
+  svg.call(d3.zoom().scaleExtent([0.5, 8]).on("zoom", (e) => { zt = e.transform; zoomG.attr("transform", e.transform); }));
 
   const node = g.selectAll("g.node").data(root.descendants()).join("g")
     .attr("class", "node").attr("transform", (d) => `translate(${d.x},${d.y})`);
@@ -428,9 +570,10 @@ function drawCirclePacking(data) {
     // anchor beside the circle, computed from data coords (robust during the grow-in)
     const bodyRect = body.getBoundingClientRect();
     const svgRect = svg.node().getBoundingClientRect();
-    const cx = svgRect.left - bodyRect.left + (w - s) / 2 + d.x;
-    const cy = svgRect.top - bodyRect.top + (h - s) / 2 + d.y;
-    const r = d.r;
+    const [px, py] = zt.apply([(w - s) / 2 + d.x, (h - s) / 2 + d.y]); // account for zoom/pan
+    const cx = svgRect.left - bodyRect.left + px;
+    const cy = svgRect.top - bodyRect.top + py;
+    const r = d.r * zt.k;
     const cw = card.offsetWidth, ch = card.offsetHeight;
     let left, side;
     if (cx + r + 14 + cw <= bodyRect.width - 6) { left = cx + r + 14; side = "right"; }
@@ -650,12 +793,14 @@ const TABS = [
       const total = pool.reduce((s, f) => s + f.code, 0);
       return `${locFilter ? "." + locFilter + " · " : ""}top ${n} of ${pool.length} files · ${total.toLocaleString()} LOC`;
     } },
-  { id: "hotspots", label: "Hotspots", title: "Hotspots", desc: "Circle size is lines of code, color is change frequency — redder is riskier. The 10 riskiest pulse; click any file for details.", draw: drawCirclePacking, key: "hotspots", scroll: false,
+  { id: "hotspots", label: "Hotspots", title: "Hotspots", desc: "Circle size is lines of code, color is change frequency — redder is riskier. The 10 riskiest pulse; click any file for details, scroll to zoom.", draw: drawCirclePacking, key: "hotspots", scroll: false,
     meta: (d) => `${d.hotspots.length} files · top ${TOP_RANK} riskiest pulsing` },
   { id: "churn", label: "Churn", title: "Churn", desc: "Rows are files, columns are weeks. Brighter cells = more lines added + deleted that week. Hover a row to focus its history, click it to copy the path.", draw: drawHeatmap, key: "churn", scroll: true,
     meta: (d) => `${d.churn.length} file·weeks` },
   { id: "coupling", label: "Coupling", title: "Coupling", desc: "Files that change together are linked — thicker = stronger, color = top-level folder. Raise the threshold to cut the hairball; hover a file to isolate its couplings, click it to copy the path.", draw: drawForce, key: "coupling", scroll: false,
     meta: (d) => `${d.coupling.length} coupled pairs` },
+  { id: "owners", label: "Owners", title: "The Team", desc: "Who's behind this project — each author sized by their share of the codebase (lines contributed). Click an author to copy their handle.", draw: drawKnowledgeMap, key: "contributors", scroll: false,
+    meta: (d) => `${d.contributors.length} contributors` },
 ];
 
 let DATA = null;

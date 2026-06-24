@@ -75,6 +75,19 @@ export function locColor(all) {
   return d3.scaleOrdinal(exts, d3.schemeTableau10.concat(d3.schemeSet2, d3.schemePaired));
 }
 
+// ---- Owners: stable color-per-author, ordered by ownership ----
+export function authorColor(contributors) {
+  const names = contributors.map((c) => c.author);
+  return d3.scaleOrdinal(names, d3.schemeTableau10.concat(d3.schemeSet2, d3.schemePaired));
+}
+// readable text color for a given fill, by perceived luminance
+export function textOn(fill) {
+  const c = d3.color(fill);
+  if (!c) return "#0b1016";
+  const { r, g, b } = c.rgb();
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#0b1016" : "#f0f4f8";
+}
+
 // ---- Coupling: stable color-per-top-level-directory ----
 export const cpDirOf = (id) => (id.includes("/") ? id.slice(0, id.indexOf("/")) : ".");
 export function couplingColor(all) {
