@@ -42,19 +42,19 @@ The user picks a directory, clicks Analyze, and gets four visual analyses of the
 
 ### Tab 1 — LOC: Treemap
 
-Files as rectangles, area = lines of code, grouped and nested by directory hierarchy. Color by file extension. The shape of the codebase becomes immediately visible — which folders dominate, which files are outliers.
+A **flat** treemap (no directory nesting) of the **top 120 files** by lines of code — area = LOC, color = file extension. Filenames are centered and scaled to fill each cell in a condensed display face (Oswald). The **10 largest** are emphasized with white labels and a staggered pulsing outline; the rest use black labels. A **file-type filter** (category chips at the top) narrows the view to one extension. Click any cell to copy its path.
 
 ### Tab 2 — Hotspots: Circle Packing
 
-Files as circles nested inside their parent directory circles. Circle size = LOC. Color intensity = change frequency (cool/neutral = rarely changed, hot red = frequently changed). The riskiest files glow; safe files recede.
+Files as circles nested inside their parent directory circles. Circle size = LOC, color = risk score (cool → hot red). **Risk = (changes / maxChanges) × (LOC / maxLOC) × 100** — the Tornhill *intersection*, so a file scores high only when it's both large and frequently changed. Circles grow in on load; the **10 riskiest** carry a pulsing ring. Click a circle for an inspector popover (anchored beside it) showing the full path, the score with its change/size breakdown, and a **copy path** button.
 
 ### Tab 3 — Churn: Heatmap
 
-Files on the Y axis, weeks on the X axis, cell color = churn intensity (additions + deletions) during that week. Similar to GitHub's contribution graph but per file. Reveals when files were actively rewritten vs stable — bursts of activity, periods of calm.
+Files (top 45 by total churn) on the Y axis, active weeks on the X axis, cell color = churn intensity (additions + deletions) that week. Reveals when files were actively rewritten vs stable. **Hover a row** for Excel-style focus — the rest dim out and the row's activity cells pulse left-to-right through time. Click a row to copy its path.
 
 ### Tab 4 — Coupling: Force-directed graph
 
-Files as nodes, edges drawn between files that co-changed in the same commit. Edge thickness = coupling count. Tightly coupled clusters pull together naturally; isolated files float away. The hidden dependency structure of the codebase becomes a visible map.
+Files as nodes, edges between files that co-changed in the same commit. Edge thickness = coupling count, node size = total coupling, **node color = top-level directory** (shown in a legend). A **strength slider** raises the minimum co-change count to cut the hairball down to meaningful couplings. **Hover a node** to isolate it + its coupled partners (everything else fades). Drag to reposition, scroll to zoom, click a node to copy its path.
 
 ---
 
@@ -64,13 +64,19 @@ Files as nodes, edges drawn between files that co-changed in the same commit. Ed
 
 ```
 src/
+  main.js                 # mounts App; imports oswald.css then app.css
+  app.css                 # tokens + ALL global D3/viz styles (see note below)
+  oswald.css              # @font-face for Oswald, inlined as a base64 data URI
   App.svelte              # directory input, analyze button, tab shell
   lib/
+    viz/
+      util.js             # shared helpers: copyPath/toast, fmtLoc,
+                          #   buildHierarchy, locColor, couplingColor, cpDirOf
     tabs/
-      LocTab.svelte       # treemap
+      LocTab.svelte       # treemap + file-type filter chips
       HotspotsTab.svelte  # circle packing
       ChurnTab.svelte     # heatmap
-      CouplingTab.svelte  # force-directed graph
+      CouplingTab.svelte  # force graph + strength slider + dir legend
     visualizations/
       Treemap.svelte      # D3 treemap component
       CirclePacking.svelte
@@ -78,7 +84,21 @@ src/
       ForceGraph.svelte
 ```
 
-Each visualization component receives its data as a prop and owns its D3 lifecycle (create on mount, update on data change, destroy on unmount).
+Each visualization component receives its data (and any control state, e.g.
+`filter`, `minCount`) as props and owns its D3 lifecycle: a `$effect` redraws on
+data/prop/size change, and a `ResizeObserver` tracks the container.
+
+**CSS gotcha:** Svelte scopes component `<style>` by adding a hash class to
+elements and selectors, but D3-created SVG elements never get that class — so
+component-scoped rules won't match them. All visualization styling (treemap
+labels, pulses, inspector, heatmap row focus, force-graph focus, chips, legend,
+toast) therefore lives **globally in `app.css`**, not in component `<style>`
+blocks. Component `<style>` is used only for Svelte-rendered layout (tab
+headers/bodies).
+
+**Fill via `style`, not `attr`:** the shared `svg text { fill }` rule outranks a
+presentation attribute, so per-element text colors are set with `.style("fill", …)`
+(which wins) rather than `.attr("fill", …)`.
 
 ### Backend (Rust / Tauri commands)
 
@@ -87,11 +107,15 @@ src-tauri/src/
   main.rs
   commands/
     loc.rs        # walk directory, count lines natively
-    hotspots.rs   # git log + loc join, normalize score
+    hotspots.rs   # git log + loc join, risk = changeFrac * sizeFrac * 100
     churn.rs      # git log --numstat --since, aggregate by file + week
     coupling.rs   # git log --name-only, find co-changed pairs
+    util.rs       # shared file walking, filtering, line counting
   models.rs       # shared structs + serde types
 ```
+
+`src-tauri/examples/smoke.rs` is a throwaway runner (`cargo run --example smoke -- <path>`)
+that prints a summary of all four analyses — handy for verifying the backend without the GUI.
 
 ### Tauri commands
 
@@ -123,7 +147,7 @@ struct FileStat {
 
 struct HotspotStat {
     path: String,
-    score: f64,       // normalized: (churn + loc) / 2 * 100
+    score: f64,       // Tornhill intersection: (changes/maxChanges) * (loc/maxLoc) * 100
     changes: usize,
     code: usize,
 }
@@ -171,6 +195,28 @@ Default extensions included:
 - **Only `git` required** at runtime — churn and coupling shell out to `git log`; everything else is pure filesystem.
 - **All four analyses run in parallel** on click — Tauri commands are async; frontend renders each tab as its data resolves.
 - **D3 owned by Svelte components** — each visualization component manages its own D3 instance; no shared global D3 state.
+- **Risk is a product, not an average** — `changeFrac × sizeFrac`, so only files high on *both* axes (Tornhill's intersection) score as hotspots.
+- **Copy-to-editor everywhere** — the call to action is "open this file," so every view lets the dev click a file to copy its path (toast confirms). In the desktop build this uses the webview clipboard.
+- **Oswald, self-hosted** — the condensed display face is inlined as a base64 data URI in `oswald.css` so it works offline in the bundled app (no font CDN).
+
+### Design mock
+
+`mockup/` is a standalone, dependency-free HTML prototype of all four views,
+driven by seeded synthetic data (a simulated commit log, so Hotspots/Churn/
+Coupling are mutually consistent). It's the fast iteration surface — design
+changes are proven there first, then ported into the Svelte components.
+
+```
+mockup/
+  index.html        # generated, self-contained (D3 + Oswald inlined) — open directly
+  build.sh          # regenerates index.html (inlines D3 + the font)
+  src/top.html      # styles + app chrome
+  src/app.js        # mock data + the four D3 views
+  src/oswald-face.css
+```
+
+Edit `src/*`, run `./mockup/build.sh`, open `mockup/index.html`. Datasets
+include a `tangled` repo that reproduces the coupling "hairball" for testing.
 
 ---
 

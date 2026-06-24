@@ -63,8 +63,9 @@ pub fn analyze_hotspots(path: String) -> Result<Vec<HotspotStat>, String> {
         .iter()
         .map(|(p, &code)| {
             let ch = *changes.get(p).unwrap_or(&0);
+            // Tornhill intersection: high only when BOTH churned and large
             let score =
-                (ch as f64 / max_changes as f64 + code as f64 / max_loc as f64) / 2.0 * 100.0;
+                (ch as f64 / max_changes as f64) * (code as f64 / max_loc as f64) * 100.0;
             HotspotStat {
                 path: p.clone(),
                 score,

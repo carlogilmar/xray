@@ -13,7 +13,7 @@ pub struct FileStat {
 #[derive(Serialize, Clone)]
 pub struct HotspotStat {
     pub path: String,
-    /// normalized: (norm_changes + norm_loc) / 2 * 100
+    /// Tornhill intersection: (changes/maxChanges) * (loc/maxLoc) * 100
     pub score: f64,
     pub changes: usize,
     pub code: usize,
