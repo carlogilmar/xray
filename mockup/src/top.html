@@ -1,0 +1,182 @@
+<title>Xray — Visualization Mock</title>
+<style>
+/*__OSWALD__*/
+  :root {
+    /* neutrals biased slightly toward the teal accent */
+    --bg: #0c1116;
+    --bg-elevated: #11171e;
+    --bg-input: #090d12;
+    --border: #1e2630;
+    --border-soft: #161d26;
+    --text: #e6edf3;
+    --text-dim: #8a97a6;
+    --text-faint: #5b6775;
+    --accent: #2dd4bf;
+    --accent-deep: #0c3b35;
+    --accent-ink: #04211d;
+    --danger: #f85149;
+    --radius: 9px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --display: "Oswald", "Roboto Condensed", "Arial Narrow", var(--sans);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(45, 212, 191, 0.06), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  h1, h2, h3 { margin: 0; font-weight: 640; }
+
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---- top bar ---- */
+  .topbar {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding: 0.7rem 1.1rem;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 0.55rem; }
+  .logo { color: var(--accent); font-size: 1.35rem; line-height: 1; }
+  .brand h1 { font-size: 1.05rem; letter-spacing: 0.06em; }
+  .brand .tag {
+    font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--text-faint); border: 1px solid var(--border);
+    padding: 0.12rem 0.4rem; border-radius: 5px; margin-left: 0.2rem;
+  }
+
+  .controls { display: flex; align-items: center; gap: 0.55rem; flex: 1; }
+  .path {
+    flex: 1; min-width: 0;
+    background: var(--bg-input); border: 1px solid var(--border);
+    color: var(--text); border-radius: var(--radius);
+    padding: 0.5rem 0.7rem; font-family: var(--mono); font-size: 0.82rem;
+  }
+  .path:focus { outline: none; border-color: var(--accent); }
+  .field { display: flex; align-items: center; gap: 0.4rem; color: var(--text-dim); font-size: 0.72rem; white-space: nowrap; }
+  select {
+    background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; padding: 0.4rem 0.45rem;
+    font-family: var(--mono); font-size: 0.75rem;
+  }
+  button.primary {
+    background: var(--accent); color: var(--accent-ink); border: none;
+    border-radius: var(--radius); padding: 0.5rem 1.05rem; font-weight: 650;
+  }
+  button.primary:hover { filter: brightness(1.08); }
+
+  /* ---- tabs ---- */
+  .tabs {
+    display: flex; gap: 0.15rem; padding: 0 1.1rem;
+    background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    background: transparent; border: none; color: var(--text-dim);
+    padding: 0.65rem 0.95rem; font-size: 0.84rem;
+    border-bottom: 2px solid transparent; display: flex; align-items: baseline; gap: 0.45rem;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .count { font-family: var(--mono); font-size: 0.68rem; color: var(--text-faint); }
+  .tab.active .count { color: var(--accent); }
+
+  /* ---- stage ---- */
+  .stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+  .viz-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 0.8rem 1.2rem 0.6rem; flex-shrink: 0;
+  }
+  .viz-head h2 { font-size: 1rem; }
+  .viz-head p { margin: 0.22rem 0 0; color: var(--text-dim); font-size: 0.8rem; max-width: 60ch; }
+  .viz-head .meta { color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; text-align: right; white-space: nowrap; }
+  .viz-filter { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0 1.2rem 0.65rem; flex-shrink: 0; }
+  .viz-filter:empty { display: none; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--bg-input); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 999px; padding: 0.26rem 0.7rem; font-family: var(--mono); font-size: 0.74rem;
+  }
+  .chip:hover { color: var(--text); border-color: var(--text-faint); }
+  .chip.active { color: var(--text); border-color: var(--accent); background: var(--accent-deep); }
+  .chip .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .chip .n { color: var(--text-faint); font-size: 0.68rem; }
+  .chip.active .n { color: var(--accent); }
+  .viz-body { flex: 1; min-height: 0; padding: 0 0.7rem 0.7rem; position: relative; }
+  .viz-body.scroll { overflow: auto; }
+  .viz { width: 100%; height: 100%; }
+
+  .empty { color: var(--text-dim); padding: 2rem; text-align: center; font-size: 0.9rem; }
+
+  /* ---- shared d3 text ---- */
+  svg text { font-family: var(--mono); fill: var(--text); }
+  .tm-label { font-family: var(--display); font-weight: 600; letter-spacing: 0.02em; pointer-events: none; }
+  .tm-pulse { fill: none; stroke: #ffffff; pointer-events: none; animation: tmPulse 2.1s ease-in-out infinite; }
+  @keyframes tmPulse {
+    0%, 100% { stroke-opacity: 0.18; stroke-width: 1.4; }
+    50%      { stroke-opacity: 0.95; stroke-width: 2.6; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tm-pulse { animation: none; stroke-opacity: 0.75; stroke-width: 1.8; }
+  }
+  .circle-label { font-size: 9px; text-anchor: middle; pointer-events: none; }
+  .legend-label { font-size: 9px; fill: var(--text-dim); }
+  .row-label { font-size: 10px; fill: var(--text-dim); }
+  .col-label { font-size: 9px; fill: var(--text-dim); text-anchor: start; }
+  .node-label { font-size: 9px; fill: var(--text-dim); pointer-events: none; }
+  .force svg { cursor: grab; }
+</style>
+
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⌖</span>
+      <h1>Xray</h1>
+      <span class="tag">mock</span>
+    </div>
+    <div class="controls">
+      <input class="path" type="text" value="~/projects/aurora-web" spellcheck="false" />
+      <label class="field"><span>dataset</span>
+        <select id="dataset">
+          <option value="medium">aurora-web · medium</option>
+          <option value="large">monolith · large</option>
+          <option value="small">cli-tool · small</option>
+        </select>
+      </label>
+      <label class="field"><span>churn</span>
+        <select id="window">
+          <option value="90">90d</option>
+          <option value="180">180d</option>
+          <option value="365" selected>1y</option>
+        </select>
+      </label>
+      <button class="primary" id="analyze">Analyze</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs"></nav>
+
+  <section class="stage">
+    <div class="viz-head">
+      <div>
+        <h2 id="viz-title"></h2>
+        <p id="viz-desc"></p>
+      </div>
+      <div class="meta" id="viz-meta"></div>
+    </div>
+    <div class="viz-filter" id="viz-filter"></div>
+    <div class="viz-body" id="viz-body">
+      <div class="viz" id="viz"></div>
+    </div>
+  </section>
+</div>
