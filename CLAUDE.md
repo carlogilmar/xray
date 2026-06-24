@@ -177,7 +177,11 @@ Default extensions included:
 ## Build & run
 
 ```bash
-npm install
-npm run tauri dev     # development
-npm run tauri build   # production binary
+pnpm install
+pnpm tauri dev     # development
+pnpm tauri build   # production binary
 ```
+
+> Toolchain is pinned in `.tool-versions` (asdf): rust 1.95.0, nodejs 25.9.0, pnpm 9.15.0.
+> Tauri commands return `Result<Vec<T>, String>` so the frontend surfaces analysis errors.
+> App icons are generated from `scripts/generate-icon.mjs` → `pnpm tauri icon app-icon.png`.
