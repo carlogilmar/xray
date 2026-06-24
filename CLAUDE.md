@@ -1,159 +1,183 @@
 # Xray — Claude Code Context
 
-A language-agnostic CLI tool written in **Rust** that analyzes any project directory and produces a self-contained HTML report with interactive visualizations.
+A desktop app built with **Tauri + Svelte + Rust** that analyzes any project directory and displays interactive D3 visualizations across four tabs.
 
 ---
 
 ## What it does
 
-Point it at any codebase — Elixir, Ruby, Node, Go — and it produces four analyses:
+The user picks a directory, clicks Analyze, and gets four visual analyses of the codebase — each in its own tab with a D3 visualization designed to make the insight immediately visible.
 
-| Analysis | Question answered |
-|---|---|
-| **Lines of code** | Which files are the largest? |
-| **Hotspots** | Which files are large AND frequently changed? |
-| **Churn** | Which files are being rewritten the most? |
-| **Coupling** | Which files always change together? |
-
-Results are written to a self-contained `xray-report.html` and opened in the browser automatically.
+| Tab | Analysis | Visualization |
+|---|---|---|
+| **LOC** | Which files are the largest? | Treemap |
+| **Hotspots** | Which files are large AND frequently changed? | Circle Packing |
+| **Churn** | Which files are being rewritten the most, and when? | Heatmap |
+| **Coupling** | Which files always change together? | Force-directed graph |
 
 ---
 
-## Usage
+## Stack
 
-```bash
-xray .                          # analyze current directory
-xray /path/to/any/project       # analyze a specific directory
-xray . --only src               # scope to a subdirectory
-xray . --days 60                # churn window (default: 90 days)
-xray . --limit 20               # top N files per analysis (default: 10)
-xray . --output report.html     # custom output path (default: xray-report.html)
-```
+| Layer | Technology |
+|---|---|
+| Desktop shell | Tauri 2 |
+| Frontend | Svelte 5 |
+| Visualizations | D3.js v7 |
+| Backend / analysis | Rust (Tauri commands) |
+
+---
+
+## User flow
+
+1. App opens to a single screen with a directory input and an Analyze button
+2. User types or picks a directory path (Tauri file dialog)
+3. User clicks Analyze — all four analyses run in parallel via Tauri commands
+4. Four tabs appear; each tab renders its D3 visualization as data arrives
+5. User can switch tabs freely and re-run analysis on a different directory
+
+---
+
+## Visualizations
+
+### Tab 1 — LOC: Treemap
+
+Files as rectangles, area = lines of code, grouped and nested by directory hierarchy. Color by file extension. The shape of the codebase becomes immediately visible — which folders dominate, which files are outliers.
+
+### Tab 2 — Hotspots: Circle Packing
+
+Files as circles nested inside their parent directory circles. Circle size = LOC. Color intensity = change frequency (cool/neutral = rarely changed, hot red = frequently changed). The riskiest files glow; safe files recede.
+
+### Tab 3 — Churn: Heatmap
+
+Files on the Y axis, weeks on the X axis, cell color = churn intensity (additions + deletions) during that week. Similar to GitHub's contribution graph but per file. Reveals when files were actively rewritten vs stable — bursts of activity, periods of calm.
+
+### Tab 4 — Coupling: Force-directed graph
+
+Files as nodes, edges drawn between files that co-changed in the same commit. Edge thickness = coupling count. Tightly coupled clusters pull together naturally; isolated files float away. The hidden dependency structure of the codebase becomes a visible map.
 
 ---
 
 ## Architecture
 
-### Data pipeline
+### Frontend (Svelte)
 
 ```
-directory path
-  └── git log (churn, coupling, hotspots)
-  └── file walker (LOC — built-in, no cloc dependency)
-        └── Analyzer structs
-              └── HTML report generator
+src/
+  App.svelte              # directory input, analyze button, tab shell
+  lib/
+    tabs/
+      LocTab.svelte       # treemap
+      HotspotsTab.svelte  # circle packing
+      ChurnTab.svelte     # heatmap
+      CouplingTab.svelte  # force-directed graph
+    visualizations/
+      Treemap.svelte      # D3 treemap component
+      CirclePacking.svelte
+      Heatmap.svelte
+      ForceGraph.svelte
 ```
 
-### Modules
+Each visualization component receives its data as a prop and owns its D3 lifecycle (create on mount, update on data change, destroy on unmount).
 
-| Module | Responsibility |
-|---|---|
-| `main.rs` | CLI argument parsing (`clap`) |
-| `git.rs` | Shell out to `git log --numstat` and `git log --name-only` |
-| `walker.rs` | Walk the directory tree, count lines per file (blank, comment, code) |
-| `analyzer.rs` | Compute LOC, hotspots, churn, coupling scores |
-| `report.rs` | Render the self-contained HTML report |
+### Backend (Rust / Tauri commands)
+
+```
+src-tauri/src/
+  main.rs
+  commands/
+    loc.rs        # walk directory, count lines natively
+    hotspots.rs   # git log + loc join, normalize score
+    churn.rs      # git log --numstat --since, aggregate by file + week
+    coupling.rs   # git log --name-only, find co-changed pairs
+  models.rs       # shared structs + serde types
+```
+
+### Tauri commands
+
+```rust
+#[tauri::command]
+fn analyze_loc(path: String) -> Vec<FileStat>
+
+#[tauri::command]
+fn analyze_hotspots(path: String) -> Vec<HotspotStat>
+
+#[tauri::command]
+fn analyze_churn(path: String, days: u32) -> Vec<ChurnWeekStat>
+
+#[tauri::command]
+fn analyze_coupling(path: String) -> Vec<CouplingPair>
+```
 
 ### Key types
 
 ```rust
 struct FileStat {
     path: String,
+    directory: String,
+    extension: String,
     code: usize,
     blank: usize,
     comment: usize,
 }
 
-struct ChurnStat {
+struct HotspotStat {
     path: String,
+    score: f64,       // normalized: (churn + loc) / 2 * 100
+    changes: usize,
+    code: usize,
+}
+
+struct ChurnWeekStat {
+    path: String,
+    week: String,     // ISO week, e.g. "2025-W12"
     added: usize,
     deleted: usize,
     churn: usize,
-    commits: usize,
-}
-
-struct HotspotStat {
-    path: String,
-    score: f64,      // normalized: (churn + loc) / 2 * 100
-    changes: usize,
-    code: usize,
 }
 
 struct CouplingPair {
     file_a: String,
     file_b: String,
-    count: usize,    // times co-changed in same commit
+    count: usize,
 }
 ```
 
 ---
 
-## HTML report
-
-A single `.html` file with no external dependencies — all JS and CSS inlined.
-
-### Visualizations
-
-| Section | Chart type | Library |
-|---|---|---|
-| Lines of code | Horizontal bar chart | Chart.js (inlined) |
-| Hotspots | Bubble chart: x=churn, y=LOC, size=score | Chart.js |
-| Churn | Horizontal bar chart (added vs deleted stacked) | Chart.js |
-| Coupling | Force-directed graph: nodes=files, edges=coupling pairs, thickness=co-change count | D3.js (inlined) |
-
-The coupling graph is the primary insight — file relationships that are invisible in tables become obvious as a graph.
-
-### Report generation
-
-`report.rs` builds the HTML as a String using a template with JSON data blobs injected inline. Chart.js and D3.js minified sources are embedded as string constants so the report works with no internet connection.
-
----
-
 ## File filtering
 
-Files are included if their extension matches the configured set. Default extensions:
+Always excluded: `node_modules`, `.git`, `_build`, `deps`, `priv/static`, `target`, `dist`, binary files.
+
+Default extensions included:
 
 ```
-.ex .exs .heex   # Elixir
-.rb .erb         # Ruby
-.js .ts .jsx .tsx .vue  # JavaScript/TypeScript
-.go              # Go
-.rs              # Rust
-.py              # Python
-.css .scss       # Styles
-```
-
-Binary files, `node_modules`, `.git`, `_build`, `deps`, `priv/static` are always excluded.
-
----
-
-## Dependencies
-
-```toml
-[dependencies]
-clap = { version = "4", features = ["derive"] }  # CLI argument parsing
-serde = { version = "1", features = ["derive"] }  # JSON serialization for report data
-serde_json = "1"
-walkdir = "2"                                      # directory traversal
-```
-
-No `cloc` dependency — line counting is implemented natively in `walker.rs`.
-Only external runtime requirement: `git` must be available on PATH.
-
----
-
-## Build & install
-
-```bash
-cargo build --release
-cargo install --path .          # installs xray to ~/.cargo/bin
+.ex .exs .heex        # Elixir
+.rb .erb              # Ruby
+.js .ts .jsx .tsx     # JavaScript / TypeScript
+.vue .svelte          # UI frameworks
+.go                   # Go
+.rs                   # Rust
+.py                   # Python
+.css .scss            # Styles
 ```
 
 ---
 
 ## Design decisions
 
-- **Self-contained HTML** over a local web server — simpler, shareable, works offline.
-- **Native line counting** over shelling out to `cloc` — removes the only external dependency beyond `git`.
-- **Chart.js + D3 inlined** — the report opens anywhere with no CDN calls.
-- **No database, no config file** — stateless, runs fresh each time from git history + filesystem.
+- **Four tabs** over a single dashboard — each visualization needs space to breathe, especially the force graph and heatmap.
+- **Native line counting** in Rust — no dependency on `cloc`.
+- **Only `git` required** at runtime — churn and coupling shell out to `git log`; everything else is pure filesystem.
+- **All four analyses run in parallel** on click — Tauri commands are async; frontend renders each tab as its data resolves.
+- **D3 owned by Svelte components** — each visualization component manages its own D3 instance; no shared global D3 state.
+
+---
+
+## Build & run
+
+```bash
+npm install
+npm run tauri dev     # development
+npm run tauri build   # production binary
+```
