@@ -1,20 +1,20 @@
-<title>Xray — Visualization Mock</title>
+<title>Xray by AlertMedia — Visualization Mock</title>
 <style>
 /*__OSWALD__*/
   :root {
-    /* neutrals biased slightly toward the teal accent */
-    --bg: #0c1116;
-    --bg-elevated: #11171e;
-    --bg-input: #090d12;
-    --border: #1e2630;
-    --border-soft: #161d26;
-    --text: #e6edf3;
-    --text-dim: #8a97a6;
-    --text-faint: #5b6775;
-    --accent: #2dd4bf;
-    --accent-deep: #0c3b35;
-    --accent-ink: #04211d;
-    --danger: #f85149;
+    /* AlertMedia brand: red accent on a dark, near-neutral ground */
+    --bg: #0d1013;
+    --bg-elevated: #14181c;
+    --bg-input: #0a0d10;
+    --border: #262b31;
+    --border-soft: #1b2026;
+    --text: #f1f4f7;
+    --text-dim: #98a1ab;
+    --text-faint: #626c77;
+    --accent: #eb4e3c;       /* AlertMedia red */
+    --accent-deep: #3a110b;  /* dark red for active fills */
+    --accent-ink: #ffffff;   /* text on red */
+    --danger: #ffb02e;       /* amber, so errors don't blend into the red brand */
     --radius: 9px;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -26,7 +26,7 @@
   html, body { height: 100%; margin: 0; }
   body {
     background:
-      radial-gradient(1200px 600px at 80% -10%, rgba(45, 212, 191, 0.06), transparent 60%),
+      radial-gradient(1200px 600px at 80% -10%, rgba(235, 78, 60, 0.07), transparent 60%),
       var(--bg);
     color: var(--text);
     font-family: var(--sans);
@@ -50,10 +50,10 @@
   .logo { color: var(--accent); font-size: 1.35rem; line-height: 1; }
   .brand h1 { font-size: 1.05rem; letter-spacing: 0.06em; }
   .brand .tag {
-    font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase;
-    color: var(--text-faint); border: 1px solid var(--border);
-    padding: 0.12rem 0.4rem; border-radius: 5px; margin-left: 0.2rem;
+    font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-dim); margin-left: 0.1rem;
   }
+  .brand .tag b { color: var(--accent); font-weight: 700; }
 
   .controls { display: flex; align-items: center; gap: 0.55rem; flex: 1; }
   .path {
@@ -74,6 +74,18 @@
     border-radius: var(--radius); padding: 0.5rem 1.05rem; font-weight: 650;
   }
   button.primary:hover { filter: brightness(1.08); }
+
+  /* ---- brand sub-bar ---- */
+  .subbar {
+    display: flex; align-items: center; justify-content: center;
+    padding: 0.34rem 1.1rem;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .subbar .kicker {
+    font-size: 0.64rem; letter-spacing: 0.28em; text-transform: uppercase;
+    font-weight: 600; color: var(--accent-ink);
+  }
 
   /* ---- tabs ---- */
   .tabs {
@@ -223,7 +235,7 @@
     <div class="brand">
       <span class="logo">⌖</span>
       <h1>Xray</h1>
-      <span class="tag">mock</span>
+      <span class="tag">by <b>AlertMedia</b></span>
     </div>
     <div class="controls">
       <input class="path" type="text" value="~/projects/aurora-web" spellcheck="false" />
@@ -245,6 +257,10 @@
       <button class="primary" id="analyze">Analyze</button>
     </div>
   </header>
+
+  <div class="subbar">
+    <span class="kicker">AlertMedia Dev Tooling</span>
+  </div>
 
   <nav class="tabs" id="tabs"></nav>
 

@@ -97,10 +97,8 @@
   <header class="topbar">
     <div class="brand">
       <span class="logo">⌖</span>
-      <div class="title">
-        <h1>Xray</h1>
-        <span class="author">by @carlogilmar</span>
-      </div>
+      <h1>Xray</h1>
+      <span class="tag">by <b>AlertMedia</b></span>
     </div>
 
     <div class="controls">
@@ -130,6 +128,10 @@
       </button>
     </div>
   </header>
+
+  <div class="subbar">
+    <span class="kicker">AlertMedia Dev Tooling</span>
+  </div>
 
   {#if error}
     <div class="error">⚠ {error}</div>
@@ -186,7 +188,6 @@
           history — size, hotspots, churn over time, and hidden coupling.
         </p>
         <button class="primary" onclick={pickDirectory}>Choose a directory…</button>
-        <span class="welcome-author">made by @carlogilmar</span>
       </div>
     </section>
   {/if}
@@ -222,20 +223,36 @@
   .logo.big {
     font-size: 3rem;
   }
-  .title {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.05;
-  }
   h1 {
     font-size: 1.15rem;
     letter-spacing: 0.04em;
   }
-  .author {
-    font-size: 0.62rem;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-    font-family: var(--mono);
+  .tag {
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-left: 0.1rem;
+  }
+  .tag b {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .subbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.34rem 1.25rem;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .subbar .kicker {
+    font-size: 0.64rem;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--accent-ink);
   }
 
   .controls {
@@ -435,12 +452,5 @@
     color: var(--text-dim);
     line-height: 1.5;
     margin: 0;
-  }
-  .welcome-author {
-    margin-top: 0.4rem;
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--text-faint);
-    letter-spacing: 0.04em;
   }
 </style>
