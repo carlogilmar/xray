@@ -1,7 +1,7 @@
 //! Shared filesystem + source-filtering helpers used across analyses.
 
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
+use ignore::WalkBuilder;
 
 /// Directory names that are never walked into.
 pub const EXCLUDED_DIRS: &[&str] = &[
@@ -43,20 +43,31 @@ pub fn included_extension(ext: &str) -> bool {
     )
 }
 
-/// Walk `root` returning every analyzable source file, skipping excluded dirs.
+/// Walk `root` returning every analyzable source file.
+///
+/// Honors `.gitignore` (and `.ignore`, parent/global gitignores, git excludes)
+/// when `root` is inside a git repo, so files git ignores aren't analyzed.
+/// Hidden dot-files are skipped, and `EXCLUDED_DIRS` are pruned as a fallback
+/// for repos that commit vendored dirs git wouldn't ignore. On a non-git
+/// directory it degrades to a plain recursive walk (LOC doesn't require git).
 pub fn walk_source_files(root: &Path) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .into_iter()
+    WalkBuilder::new(root)
+        .hidden(true) // skip dotfiles/dirs (incl. .git)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true)
         .filter_entry(|e| {
             // prune excluded directories before descending
-            if e.file_type().is_dir() {
+            if e.file_type().map_or(false, |t| t.is_dir()) {
                 let name = e.file_name().to_string_lossy();
                 return !EXCLUDED_DIRS.contains(&name.as_ref());
             }
             true
         })
+        .build()
         .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.file_type().map_or(false, |t| t.is_file()))
         .map(|e| e.into_path())
         .filter(|p| {
             let s = p.to_string_lossy().replace('\\', "/");
