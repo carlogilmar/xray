@@ -110,11 +110,16 @@
       const cx = svgRect.left - elRect.left + px;
       const cy = svgRect.top - elRect.top + py;
       const r = d.r * zt.k;
+      const M = 6; // keep this much gap from every edge of the section
+      // Cap height to the section so a tall card scrolls instead of spilling out.
+      card.style.maxHeight = `${elRect.height - M * 2}px`;
       const cw = card.offsetWidth, ch = card.offsetHeight;
       let left, side;
-      if (cx + r + 14 + cw <= elRect.width - 6) { left = cx + r + 14; side = "right"; }
-      else { left = Math.max(6, cx - r - 14 - cw); side = "left"; }
-      const top = Math.max(6, Math.min(cy - ch / 2, elRect.height - ch - 6));
+      if (cx + r + 14 + cw <= elRect.width - M) { left = cx + r + 14; side = "right"; }
+      else { left = Math.min(Math.max(M, cx - r - 14 - cw), elRect.width - cw - M); side = "left"; }
+      // Clamp horizontally too, in case neither side fully fits a narrow section.
+      left = Math.max(M, Math.min(left, elRect.width - cw - M));
+      const top = Math.max(M, Math.min(cy - ch / 2, elRect.height - ch - M));
       card.className = "inspector " + side;
       card.style.left = `${left}px`;
       card.style.top = `${top}px`;

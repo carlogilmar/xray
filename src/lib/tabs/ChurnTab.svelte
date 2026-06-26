@@ -1,19 +1,27 @@
 <script>
   import Heatmap from "../visualizations/Heatmap.svelte";
   let { data } = $props();
+
+  const TOP_FILES = 45; // heatmap shows this many most-churned files
+
+  let totalFiles = $derived(data ? new Set(data.map((d) => d.path)).size : 0);
+  let shown = $derived(Math.min(TOP_FILES, totalFiles));
 </script>
 
 <div class="tab">
   <header>
     <div>
       <h2>Churn</h2>
-      <p>Rows are files, columns are weeks. Brighter cells = more lines added + deleted that week. Hover a row to focus its history, click it to copy the path.</p>
+      <p>
+        The {TOP_FILES} most-changed files in the selected window — ranked by total churn (lines added + deleted).
+        Rows are files, columns are weeks; brighter cells = more churn that week. Hover a row to focus its history, click it to copy the path.
+      </p>
     </div>
-    {#if data}<span class="meta">{data.length} file·weeks</span>{/if}
+    {#if data}<span class="meta">top {shown} of {totalFiles} changed files · by total churn</span>{/if}
   </header>
   <div class="body">
     {#if data && data.length}
-      <Heatmap {data} />
+      <Heatmap {data} top={TOP_FILES} />
     {:else}
       <p class="empty">No commits in the selected churn window.</p>
     {/if}

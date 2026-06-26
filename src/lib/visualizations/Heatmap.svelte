@@ -2,16 +2,15 @@
   import * as d3 from "d3";
   import { copyPath } from "../viz/util.js";
 
-  let { data } = $props();
+  let { data, top = 45 } = $props();
 
-  const TOP = 45; // most-churned files to show
   const CELL = 15;
   const M = { top: 54, left: 260, right: 20, bottom: 16 };
 
   let el;
 
   $effect(() => {
-    data;
+    data; top;
     draw();
   });
 
@@ -21,7 +20,7 @@
     if (!data || !data.length) return;
 
     const byFile = d3.rollup(data, (v) => d3.sum(v, (d) => d.churn), (d) => d.path);
-    const files = Array.from(byFile.entries()).sort((a, b) => b[1] - a[1]).slice(0, TOP).map((d) => d[0]);
+    const files = Array.from(byFile.entries()).sort((a, b) => b[1] - a[1]).slice(0, top).map((d) => d[0]);
     const fileSet = new Set(files);
     const weeks = Array.from(new Set(data.filter((d) => fileSet.has(d.path)).map((d) => d.week))).sort();
     const cell = new Map();

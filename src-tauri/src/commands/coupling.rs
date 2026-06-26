@@ -11,7 +11,7 @@ const MAX_FILES_PER_COMMIT: usize = 30;
 
 /// Find pairs of files that change together in the same commit.
 #[tauri::command]
-pub fn analyze_coupling(path: String) -> Result<Vec<CouplingPair>, String> {
+pub async fn analyze_coupling(path: String) -> Result<Vec<CouplingPair>, String> {
     let root = Path::new(&path);
     if !root.exists() {
         return Err(format!("Path does not exist: {path}"));

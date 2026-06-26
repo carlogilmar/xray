@@ -7,7 +7,7 @@ use crate::models::FileStat;
 
 /// Walk the directory and count lines natively for every source file.
 #[tauri::command]
-pub fn analyze_loc(path: String) -> Result<Vec<FileStat>, String> {
+pub async fn analyze_loc(path: String) -> Result<Vec<FileStat>, String> {
     let root = Path::new(&path);
     if !root.exists() {
         return Err(format!("Path does not exist: {path}"));

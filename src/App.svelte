@@ -15,6 +15,13 @@
   let analyzed = $state(false);
   let activeTab = $state("loc");
 
+  // progress across the five analyses, so the UI shows a load bar instead of
+  // appearing frozen while each one resolves.
+  const TOTAL_STEPS = 5;
+  let done = $state(0);
+  let currentStep = $state("");
+  let progress = $derived(Math.round((done / TOTAL_STEPS) * 100));
+
   let project = $state(""); // name of the project being / last analyzed
 
   let loc = $state(null);
@@ -50,23 +57,29 @@
     if (!path.trim() || loading) return;
     loading = true;
     error = "";
+    done = 0;
+    currentStep = "";
     activeTab = "loc"; // always start a fresh analysis on the first tab
     project = baseName(path);
     loc = hotspots = churn = coupling = owners = null;
 
+    // Each analysis runs independently and bumps the progress bar as it lands,
+    // so the user sees steady progress (and tabs fill in) rather than a freeze.
+    const step = async (label, assign, promise) => {
+      currentStep = label;
+      const result = await promise;
+      assign(result);
+      done += 1;
+    };
+
     try {
-      const [l, h, c, cp, ow] = await Promise.all([
-        invoke("analyze_loc", { path }),
-        invoke("analyze_hotspots", { path }),
-        invoke("analyze_churn", { path, days }),
-        invoke("analyze_coupling", { path }),
-        invoke("analyze_ownership", { path }),
+      await Promise.all([
+        step("Counting lines", (r) => (loc = r), invoke("analyze_loc", { path })),
+        step("Finding hotspots", (r) => (hotspots = r), invoke("analyze_hotspots", { path })),
+        step("Measuring churn", (r) => (churn = r), invoke("analyze_churn", { path, days })),
+        step("Detecting coupling", (r) => (coupling = r), invoke("analyze_coupling", { path })),
+        step("Resolving owners", (r) => (owners = r), invoke("analyze_ownership", { path })),
       ]);
-      loc = l;
-      hotspots = h;
-      churn = c;
-      coupling = cp;
-      owners = ow;
       analyzed = true;
     } catch (e) {
       error = String(e);
@@ -146,7 +159,10 @@
         <div class="loading">
           <div class="spinner"></div>
           <p>Analyzing <b>{project}</b>…</p>
-          <span class="sub">running four analyses in parallel</span>
+          <div class="progress" role="progressbar" aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-fill" style:width="{progress}%"></div>
+          </div>
+          <span class="sub">{currentStep || "starting"} · {done}/{TOTAL_STEPS}</span>
         </div>
       {:else if activeTab === "loc"}
         <LocTab data={loc} />
@@ -370,6 +386,19 @@
   .loading .sub {
     color: var(--text-dim);
     font-size: 0.8rem;
+  }
+  .progress {
+    width: 260px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width 0.35s ease;
   }
   .spinner {
     width: 38px;

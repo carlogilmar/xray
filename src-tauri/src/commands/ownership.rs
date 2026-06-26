@@ -10,7 +10,7 @@ use crate::models::Contributor;
 /// Who's behind the project: each author's share of the codebase, by the LOC of
 /// the files they're the primary author of (ownership = churn contribution).
 #[tauri::command]
-pub fn analyze_ownership(path: String) -> Result<Vec<Contributor>, String> {
+pub async fn analyze_ownership(path: String) -> Result<Vec<Contributor>, String> {
     let root = Path::new(&path);
     if !root.exists() {
         return Err(format!("Path does not exist: {path}"));

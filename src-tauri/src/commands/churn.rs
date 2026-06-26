@@ -9,7 +9,7 @@ use crate::models::ChurnWeekStat;
 
 /// Aggregate additions/deletions per file per ISO week over the last `days`.
 #[tauri::command]
-pub fn analyze_churn(path: String, days: u32) -> Result<Vec<ChurnWeekStat>, String> {
+pub async fn analyze_churn(path: String, days: u32) -> Result<Vec<ChurnWeekStat>, String> {
     let root = Path::new(&path);
     if !root.exists() {
         return Err(format!("Path does not exist: {path}"));

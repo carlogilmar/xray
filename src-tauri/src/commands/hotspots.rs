@@ -33,7 +33,7 @@ fn git_change_counts(root: &Path) -> HashMap<String, usize> {
 
 /// Join LOC with git change frequency to surface hotspots (big AND volatile).
 #[tauri::command]
-pub fn analyze_hotspots(path: String) -> Result<Vec<HotspotStat>, String> {
+pub async fn analyze_hotspots(path: String) -> Result<Vec<HotspotStat>, String> {
     let root = Path::new(&path);
     if !root.exists() {
         return Err(format!("Path does not exist: {path}"));
